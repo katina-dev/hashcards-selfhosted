@@ -607,3 +607,81 @@ body {
         }
     }
 }
+
+/* ===== Dashboard ===== */
+
+.dashboard {
+    max-width: 1200px;
+    margin: 0 auto;
+    padding: 1rem;
+    display: grid;
+    gap: 1.25rem;
+}
+
+.dashboard .status {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 0.5rem;
+}
+
+.dashboard .status .due-count {
+    font-size: 2.5rem;
+    font-weight: 700;
+}
+
+.dashboard .status.caught-up h1 {
+    font-size: 1.5rem;
+    margin: 0;
+}
+
+.dashboard .btn-primary {
+    display: inline-block;
+    padding: 0.6rem 1.4rem;
+    border-radius: 6px;
+    background: var(--accent, #2563eb);
+    color: #fff;
+    text-decoration: none;
+    font-weight: 600;
+}
+
+.dashboard .heatmap {
+    overflow-x: auto;
+}
+
+.dashboard .heatmap-svg .hm-cell { stroke: rgba(0,0,0,0.04); }
+.dashboard .heatmap-svg .hm-0 { fill: #ebedf0; }
+.dashboard .heatmap-svg .hm-1 { fill: #9be9a8; }
+.dashboard .heatmap-svg .hm-2 { fill: #40c463; }
+.dashboard .heatmap-svg .hm-3 { fill: #30a14e; }
+.dashboard .heatmap-svg .hm-4 { fill: #216e39; }
+
+.dashboard .footer {
+    color: var(--text-secondary, #666);
+    font-size: 0.9rem;
+    border-top: 1px solid rgba(0,0,0,0.08);
+    padding-top: 0.75rem;
+}
+
+/* Drill view tweaks */
+.due-count {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 0.5rem 1rem;
+    font-weight: 600;
+}
+.dashboard-link {
+    text-decoration: none;
+    color: var(--text-secondary, #555);
+    font-weight: 400;
+    font-size: 0.9rem;
+}
+
+@media (prefers-color-scheme: dark) {
+    .dashboard .heatmap-svg .hm-0 { fill: #161b22; }
+    .dashboard .heatmap-svg .hm-1 { fill: #0e4429; }
+    .dashboard .heatmap-svg .hm-2 { fill: #006d32; }
+    .dashboard .heatmap-svg .hm-3 { fill: #26a641; }
+    .dashboard .heatmap-svg .hm-4 { fill: #39d353; }
+}
