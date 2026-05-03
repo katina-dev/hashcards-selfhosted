@@ -17,9 +17,9 @@ use axum::extract::State;
 use axum::response::Redirect;
 use serde::Deserialize;
 
-use crate::cmd::drill::state::MutableState;
-use crate::cmd::drill::state::Review;
-use crate::cmd::drill::state::ServerState;
+use crate::cmd::serve::state::MutableState;
+use crate::cmd::serve::state::Review;
+use crate::cmd::serve::state::ServerState;
 use crate::db::ReviewRecord;
 use crate::error::Fallible;
 use crate::fsrs::Grade;

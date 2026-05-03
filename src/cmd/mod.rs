@@ -13,7 +13,7 @@
 // limitations under the License.
 
 pub mod check;
-pub mod drill;
+pub mod serve;
 pub mod export;
 pub mod orphans;
 pub mod stats;

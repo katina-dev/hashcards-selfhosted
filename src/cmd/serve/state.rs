@@ -18,8 +18,8 @@ use std::sync::Mutex;
 
 use tokio::sync::oneshot::Sender;
 
-use crate::cmd::drill::cache::Cache;
-use crate::cmd::drill::server::AnswerControls;
+use crate::cmd::serve::cache::Cache;
+use crate::cmd::serve::server::AnswerControls;
 use crate::db::Database;
 use crate::db::ReviewRecord;
 use crate::fsrs::Difficulty;

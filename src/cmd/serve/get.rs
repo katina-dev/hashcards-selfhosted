@@ -18,10 +18,10 @@ use axum::response::Html;
 use maud::Markup;
 use maud::html;
 
-use crate::cmd::drill::server::AnswerControls;
-use crate::cmd::drill::state::MutableState;
-use crate::cmd::drill::state::ServerState;
-use crate::cmd::drill::template::page_template;
+use crate::cmd::serve::server::AnswerControls;
+use crate::cmd::serve::state::MutableState;
+use crate::cmd::serve::state::ServerState;
+use crate::cmd::serve::template::page_template;
 use crate::error::Fallible;
 use crate::markdown::MarkdownRenderConfig;
 use crate::media::resolve::MediaResolverBuilder;

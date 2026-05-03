@@ -19,9 +19,9 @@ use clap::Subcommand;
 use tokio::spawn;
 
 use crate::cmd::check::check_collection;
-use crate::cmd::drill::server::AnswerControls;
-use crate::cmd::drill::server::ServerConfig;
-use crate::cmd::drill::server::start_server;
+use crate::cmd::serve::server::AnswerControls;
+use crate::cmd::serve::server::ServerConfig;
+use crate::cmd::serve::server::start_server;
 use crate::cmd::export::export_collection;
 use crate::cmd::orphans::delete_orphans;
 use crate::cmd::orphans::list_orphans;
