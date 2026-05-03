@@ -70,6 +70,15 @@ impl AppState {
     /// Relapsed cards (Forgot/Hard) are prepended from `session_state`.
     /// Caller holds no locks; this acquires read on cards and lock on db.
     pub fn compute_due_queue(&self, today: Date) -> Fallible<Vec<Card>> {
+        // Snapshot relapse queue first to keep a consistent lock order downstream
+        // (cards -> db). Holding session_state while acquiring cards would invert
+        // the order and create a latent deadlock once the file watcher takes a
+        // write lock on cards.
+        let relapse_hashes: Vec<CardHash> = {
+            let session = self.session_state.lock().unwrap();
+            session.relapse_queue.clone()
+        };
+
         let index = self.cards.read().unwrap();
         let all_cards = index.cards.clone();
         drop(index);
@@ -107,17 +116,12 @@ impl AppState {
             due_today = shuffle(due_today, &mut rng);
         }
 
-        // Prepend relapsed cards (Forgot/Hard rated this session).
-        let session = self.session_state.lock().unwrap();
-        if !session.relapse_queue.is_empty() {
-            let index = self.cards.read().unwrap();
-            let all_cards = index.cards.clone();
-            drop(index);
-
+        // Prepend relapsed cards (Forgot/Hard rated this session), using the
+        // snapshot taken at the top of this method.
+        if !relapse_hashes.is_empty() {
             // Build relapse cards in order, deduplicating against due_today.
             let due_hashes: HashSet<CardHash> = due_today.iter().map(|c| c.hash()).collect();
-            let mut relapse_cards: Vec<Card> = session
-                .relapse_queue
+            let mut relapse_cards: Vec<Card> = relapse_hashes
                 .iter()
                 .filter_map(|hash| {
                     if due_hashes.contains(hash) {
@@ -130,7 +134,6 @@ impl AppState {
             relapse_cards.extend(due_today);
             return Ok(relapse_cards);
         }
-        drop(session);
 
         Ok(due_today)
     }
