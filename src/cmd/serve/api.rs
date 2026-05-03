@@ -49,9 +49,15 @@ pub async fn api_decks_handler(
 }
 
 fn build_deck_counts(state: &AppState) -> crate::error::Fallible<BTreeMap<String, DeckCounts>> {
-    let cards = state.cards.read().unwrap().cards.clone();
+    let cards = {
+        let guard = state.cards.read().unwrap();
+        guard.cards.clone()
+    };
     let today = Date::today();
-    let due = state.db.lock().unwrap().due_today(today)?;
+    let due = {
+        let db = state.db.lock().unwrap();
+        db.due_today(today)?
+    };
 
     let mut map: BTreeMap<String, DeckCounts> = BTreeMap::new();
     for card in &cards {

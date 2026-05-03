@@ -34,6 +34,9 @@ use clap::ValueEnum;
 use tokio::net::TcpListener;
 use tokio::select;
 
+use crate::cmd::serve::api::api_cards_handler;
+use crate::cmd::serve::api::api_decks_handler;
+use crate::cmd::serve::api::healthz_handler;
 use crate::cmd::serve::get::get_handler;
 use crate::cmd::serve::katex::KATEX_CSS_URL;
 use crate::cmd::serve::katex::KATEX_JS_URL;
@@ -144,9 +147,9 @@ pub async fn start_server(config: ServerConfig) -> Fallible<()> {
         .route("/", get(get_handler))
         .route("/", post(post_handler))
         .route("/drill", get(get_handler))
-        .route("/healthz", get(crate::cmd::serve::api::healthz_handler))
-        .route("/api/decks", get(crate::cmd::serve::api::api_decks_handler))
-        .route("/api/cards", get(crate::cmd::serve::api::api_cards_handler))
+        .route("/healthz", get(healthz_handler))
+        .route("/api/decks", get(api_decks_handler))
+        .route("/api/cards", get(api_cards_handler))
         .route("/script.js", get(script_handler))
         .route("/style.css", get(style_handler))
         .route("/favicon.ico", get(favicon_handler))
