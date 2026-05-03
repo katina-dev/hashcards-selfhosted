@@ -91,6 +91,8 @@ pub struct ServerConfig {
     pub shuffle: bool,
     pub answer_controls: AnswerControls,
     pub bury_siblings: bool,
+    pub rescan_interval: Option<String>,
+    pub no_watch: bool,
 }
 
 pub async fn start_server(config: ServerConfig) -> Fallible<()> {

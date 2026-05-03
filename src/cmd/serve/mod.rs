@@ -54,6 +54,8 @@ mod tests {
             shuffle: false,
             answer_controls: AnswerControls::Full,
             bury_siblings: false,
+            rescan_interval: None,
+            no_watch: false,
         };
         let result = start_server(config).await;
         assert!(result.is_err());
@@ -80,6 +82,8 @@ mod tests {
             shuffle: false,
             answer_controls: AnswerControls::Full,
             bury_siblings: false,
+            rescan_interval: None,
+            no_watch: false,
         };
         start_server(config).await?;
         Ok(())
@@ -101,6 +105,8 @@ mod tests {
             shuffle: false,
             answer_controls: AnswerControls::Full,
             bury_siblings: false,
+            rescan_interval: None,
+            no_watch: false,
         };
         spawn(async move { start_server(config).await });
         wait_for_server(TEST_HOST, port).await?;
@@ -203,6 +209,8 @@ mod tests {
             shuffle: false,
             answer_controls: AnswerControls::Full,
             bury_siblings: false,
+            rescan_interval: None,
+            no_watch: false,
         };
         spawn(async move { start_server(config).await });
         wait_for_server(TEST_HOST, port).await?;
@@ -252,6 +260,8 @@ mod tests {
             shuffle: false,
             answer_controls: AnswerControls::Full,
             bury_siblings: false,
+            rescan_interval: None,
+            no_watch: false,
         };
         spawn(async move { start_server(config).await });
         wait_for_server(TEST_HOST, port).await?;
@@ -283,6 +293,8 @@ mod tests {
             shuffle: false,
             answer_controls: AnswerControls::Full,
             bury_siblings: false,
+            rescan_interval: None,
+            no_watch: false,
         };
         spawn(async move { start_server(config).await });
         wait_for_server(TEST_HOST, port).await?;
@@ -314,6 +326,8 @@ mod tests {
             shuffle: false,
             answer_controls: AnswerControls::Full,
             bury_siblings: false,
+            rescan_interval: None,
+            no_watch: false,
         };
         spawn(async move { start_server(config).await });
         wait_for_server(TEST_HOST, port).await?;
@@ -363,6 +377,8 @@ mod tests {
             shuffle: false,
             answer_controls: AnswerControls::Full,
             bury_siblings: false,
+            rescan_interval: None,
+            no_watch: false,
         };
         spawn(async move { start_server(config).await });
         wait_for_server(TEST_HOST, port).await?;

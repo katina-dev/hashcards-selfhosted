@@ -12,11 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::process::exit;
-
 use clap::Parser;
 use clap::Subcommand;
-use tokio::spawn;
 
 use crate::cmd::check::check_collection;
 use crate::cmd::serve::server::AnswerControls;
@@ -29,39 +26,42 @@ use crate::cmd::stats::StatsFormat;
 use crate::cmd::stats::print_stats;
 use crate::error::Fallible;
 use crate::types::timestamp::Timestamp;
-use crate::utils::wait_for_server;
 
 #[derive(Parser)]
 #[command(version, about, long_about = None)]
 enum Command {
-    /// Drill cards through a web interface.
-    Drill {
+    /// Serve cards through a long-running web interface for self-hosting.
+    Serve {
         /// Path to the collection directory. By default, the current working directory is used.
+        #[arg(env = "HASHCARDS_DIRECTORY")]
         directory: Option<String>,
-        /// Maximum number of cards to drill in a session. By default, all cards due today are drilled.
-        #[arg(long)]
+        /// Maximum number of cards to drill in a session. By default, all cards due are drilled.
+        #[arg(long, env = "HASHCARDS_CARD_LIMIT")]
         card_limit: Option<usize>,
         /// Maximum number of new cards to drill in a session.
-        #[arg(long)]
+        #[arg(long, env = "HASHCARDS_NEW_CARD_LIMIT")]
         new_card_limit: Option<usize>,
-        /// The host address to bind to. Default is 127.0.0.1.
-        #[arg(long, default_value = "127.0.0.1")]
+        /// The host address to bind to. Default is 0.0.0.0 for container friendliness.
+        #[arg(long, default_value = "0.0.0.0", env = "HASHCARDS_HOST")]
         host: String,
         /// The port to use for the web server. Default is 8000.
-        #[arg(long, default_value_t = 8000)]
+        #[arg(long, default_value_t = 8000, env = "HASHCARDS_PORT")]
         port: u16,
         /// Only drill cards from this deck.
-        #[arg(long)]
+        #[arg(long, env = "HASHCARDS_FROM_DECK")]
         from_deck: Option<String>,
-        /// Whether to open the browser automatically. Default is true.
-        #[arg(long)]
-        open_browser: Option<bool>,
-        /// Which answer controls to show:
-        #[arg(long, default_value_t = AnswerControls::Full)]
+        /// Which answer controls to show.
+        #[arg(long, default_value_t = AnswerControls::Full, env = "HASHCARDS_ANSWER_CONTROLS")]
         answer_controls: AnswerControls,
         /// Whether or not to bury siblings. Default is true.
-        #[arg(long)]
+        #[arg(long, env = "HASHCARDS_BURY_SIBLINGS")]
         bury_siblings: Option<bool>,
+        /// Polling rescan interval (e.g. "30s") for filesystems where inotify is silent.
+        #[arg(long, env = "HASHCARDS_RESCAN_INTERVAL")]
+        rescan_interval: Option<String>,
+        /// Disable the inotify-based file watcher.
+        #[arg(long, env = "HASHCARDS_NO_WATCH")]
+        no_watch: bool,
     },
     /// Check the integrity of a collection.
     Check {
@@ -108,32 +108,18 @@ enum OrphanCommand {
 pub async fn entrypoint() -> Fallible<()> {
     let cli: Command = Command::parse();
     match cli {
-        Command::Drill {
+        Command::Serve {
             directory,
             card_limit,
             new_card_limit,
             host,
             port,
             from_deck,
-            open_browser,
             answer_controls,
             bury_siblings,
+            rescan_interval,
+            no_watch,
         } => {
-            if open_browser.unwrap_or(true) {
-                // Start a separate task to open the browser once the server is up.
-                let browser_host = host.clone();
-                spawn(async move {
-                    match wait_for_server(&browser_host, port).await {
-                        Ok(_) => {
-                            let _ = open::that(format!("http://{browser_host}:{port}/"));
-                        }
-                        Err(e) => {
-                            eprintln!("Failed to connect to server: {e}");
-                            exit(-1)
-                        }
-                    }
-                });
-            }
             let config = ServerConfig {
                 directory,
                 host,
@@ -145,6 +131,8 @@ pub async fn entrypoint() -> Fallible<()> {
                 shuffle: true,
                 answer_controls,
                 bury_siblings: bury_siblings.unwrap_or(true),
+                rescan_interval,
+                no_watch,
             };
             start_server(config).await
         }
