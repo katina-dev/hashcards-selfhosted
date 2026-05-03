@@ -35,7 +35,6 @@ use clap::ValueEnum;
 use tokio::net::TcpListener;
 use tokio::select;
 
-use crate::cmd::serve::cache::Cache;
 use crate::cmd::serve::get::get_handler;
 use crate::cmd::serve::katex::KATEX_CSS_URL;
 use crate::cmd::serve::katex::KATEX_JS_URL;
@@ -94,7 +93,7 @@ pub struct ServerConfig {
 pub async fn start_server(config: ServerConfig) -> Fallible<()> {
     let Collection {
         directory,
-        db,
+        mut db,
         cards,
         macros,
     } = Collection::new(config.directory)?;
@@ -102,20 +101,19 @@ pub async fn start_server(config: ServerConfig) -> Fallible<()> {
     let today: Date = config.session_started_at.date();
 
     let db_hashes: HashSet<CardHash> = db.card_hashes()?;
-    // If a card is in the directory, but not in the DB, it is new. Add it to
-    // the database.
     for card in cards.iter() {
         if !db_hashes.contains(&card.hash()) {
             db.insert_card(card.hash(), config.session_started_at)?;
         }
     }
 
-    // Find cards due today.
+    let session_id: i64 = db.create_session(config.session_started_at)?;
+
     let due_today: HashSet<CardHash> = db.due_today(today)?;
     let due_today: Vec<Card> = cards
         .into_iter()
         .filter(|card| due_today.contains(&card.hash()))
-        .collect::<Vec<_>>();
+        .collect();
 
     let due_today: Vec<Card> = filter_deck(
         &db,
@@ -131,12 +129,6 @@ pub async fn start_server(config: ServerConfig) -> Fallible<()> {
         due_today
     };
 
-    if due_today.is_empty() {
-        println!("No cards due today.");
-        return Ok(());
-    }
-
-    // Finally, shuffle the cards.
     let due_today: Vec<Card> = if config.shuffle {
         let seed = SystemTime::now()
             .duration_since(UNIX_EPOCH)
@@ -148,50 +140,40 @@ pub async fn start_server(config: ServerConfig) -> Fallible<()> {
         due_today
     };
 
-    // For all cards due today, fetch their performance from the database and store it in the cache.
-    let mut cache = Cache::new();
-    for card in due_today.iter() {
-        let performance = db.get_card_performance(card.hash())?;
-        cache.insert(card.hash(), performance)?;
-    }
-
     let state = ServerState {
         port: config.port,
         directory,
         macros,
-        total_cards: due_today.len(),
-        session_started_at: config.session_started_at,
+        session_id,
         mutable: Arc::new(Mutex::new(MutableState {
             reveal: false,
             db,
-            cache,
             cards: due_today,
             reviews: Vec::new(),
         })),
         answer_controls: config.answer_controls,
     };
-    let app = Router::new();
-    let app = app.route("/", get(get_handler));
-    let app = app.route("/", post(post_handler));
-    let app = app.route("/script.js", get(script_handler));
-    let app = app.route("/style.css", get(style_handler));
-    let app = app.route("/favicon.ico", get(favicon_handler));
-    let app = app.route(KATEX_CSS_URL, get(katex_css_handler));
-    let app = app.route(KATEX_JS_URL, get(katex_js_handler));
-    let app = app.route(KATEX_MHCHEM_JS_URL, get(katex_mhchem_js_handler));
-    let app = app.route("/katex/fonts/{*path}", get(katex_font_handler));
-    let app = app.route("/file/{*path}", get(file_handler));
-    let app = app.fallback(not_found_handler);
-    let app = app.with_state(state.clone());
-    let bind = format!("{}:{}", config.host, config.port);
 
-    // Start the server with graceful shutdown on Ctrl+C or SIGTERM.
-    log::debug!("Starting server on {bind}");
+    let app = Router::new()
+        .route("/", get(get_handler))
+        .route("/", post(post_handler))
+        .route("/script.js", get(script_handler))
+        .route("/style.css", get(style_handler))
+        .route("/favicon.ico", get(favicon_handler))
+        .route(KATEX_CSS_URL, get(katex_css_handler))
+        .route(KATEX_JS_URL, get(katex_js_handler))
+        .route(KATEX_MHCHEM_JS_URL, get(katex_mhchem_js_handler))
+        .route("/katex/fonts/{*path}", get(katex_font_handler))
+        .route("/file/{*path}", get(file_handler))
+        .fallback(not_found_handler)
+        .with_state(state);
+
+    let bind = format!("{}:{}", config.host, config.port);
+    log::info!("hashcards serve listening on {bind}");
     let listener = TcpListener::bind(bind).await?;
     axum::serve(listener, app)
         .with_graceful_shutdown(shutdown_signal())
         .await?;
-
     Ok(())
 }
 

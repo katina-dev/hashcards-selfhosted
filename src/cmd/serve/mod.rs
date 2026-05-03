@@ -12,7 +12,6 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-mod cache;
 mod get;
 mod katex;
 mod post;
@@ -85,7 +84,14 @@ mod tests {
             rescan_interval: None,
             no_watch: false,
         };
-        start_server(config).await?;
+        // Server starts (no early return when no cards due); spawn it and check
+        // that the root endpoint returns the caught-up screen.
+        spawn(async move { start_server(config).await });
+        wait_for_server(TEST_HOST, port).await?;
+        let response = reqwest::get(format!("http://{TEST_HOST}:{port}/")).await?;
+        assert!(response.status().is_success());
+        let html = response.text().await?;
+        assert!(html.contains("You're caught up."));
         Ok(())
     }
 
@@ -194,90 +200,6 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_undo() -> Fallible<()> {
-        let port = pick_unused_port().unwrap();
-        let directory = create_tmp_copy_of_test_directory()?;
-        let session_started_at = Timestamp::now();
-        let config = ServerConfig {
-            directory: Some(directory),
-            host: TEST_HOST.to_string(),
-            port,
-            session_started_at,
-            card_limit: None,
-            new_card_limit: None,
-            deck_filter: None,
-            shuffle: false,
-            answer_controls: AnswerControls::Full,
-            bury_siblings: false,
-            rescan_interval: None,
-            no_watch: false,
-        };
-        spawn(async move { start_server(config).await });
-        wait_for_server(TEST_HOST, port).await?;
-
-        // Hit reveal.
-        let response = reqwest::Client::new()
-            .post(format!("http://{TEST_HOST}:{port}/"))
-            .form(&[("action", "Reveal")])
-            .send()
-            .await?;
-        assert!(response.status().is_success());
-
-        // Hit 'Good'.
-        let response = reqwest::Client::new()
-            .post(format!("http://{TEST_HOST}:{port}/"))
-            .form(&[("action", "Good")])
-            .send()
-            .await?;
-        assert!(response.status().is_success());
-
-        // Hit undo.
-        let response = reqwest::Client::new()
-            .post(format!("http://{TEST_HOST}:{port}/"))
-            .form(&[("action", "Undo")])
-            .send()
-            .await?;
-        assert!(response.status().is_success());
-        let html = response.text().await?;
-        assert!(html.contains("baz <span class='cloze'>.............</span>"));
-
-        Ok(())
-    }
-
-    #[tokio::test]
-    async fn test_undo_initial() -> Fallible<()> {
-        let port = pick_unused_port().unwrap();
-        let directory = create_tmp_copy_of_test_directory()?;
-        let session_started_at = Timestamp::now();
-        let config = ServerConfig {
-            directory: Some(directory),
-            host: TEST_HOST.to_string(),
-            port,
-            session_started_at,
-            card_limit: None,
-            new_card_limit: None,
-            deck_filter: None,
-            shuffle: false,
-            answer_controls: AnswerControls::Full,
-            bury_siblings: false,
-            rescan_interval: None,
-            no_watch: false,
-        };
-        spawn(async move { start_server(config).await });
-        wait_for_server(TEST_HOST, port).await?;
-
-        // Hit undo.
-        let response = reqwest::Client::new()
-            .post(format!("http://{TEST_HOST}:{port}/"))
-            .form(&[("action", "Undo")])
-            .send()
-            .await?;
-        assert!(response.status().is_success());
-
-        Ok(())
-    }
-
-    #[tokio::test]
     async fn test_answer_without_reveal() -> Fallible<()> {
         let port = pick_unused_port().unwrap();
         let directory = create_tmp_copy_of_test_directory()?;
@@ -306,57 +228,6 @@ mod tests {
             .send()
             .await?;
         assert!(response.status().is_success());
-
-        Ok(())
-    }
-
-    #[tokio::test]
-    async fn test_undo_forgetting() -> Fallible<()> {
-        let port = pick_unused_port().unwrap();
-        let directory = create_tmp_copy_of_test_directory()?;
-        let session_started_at = Timestamp::now();
-        let config = ServerConfig {
-            directory: Some(directory),
-            host: TEST_HOST.to_string(),
-            port,
-            session_started_at,
-            card_limit: None,
-            new_card_limit: None,
-            deck_filter: None,
-            shuffle: false,
-            answer_controls: AnswerControls::Full,
-            bury_siblings: false,
-            rescan_interval: None,
-            no_watch: false,
-        };
-        spawn(async move { start_server(config).await });
-        wait_for_server(TEST_HOST, port).await?;
-
-        // Hit reveal.
-        let response = reqwest::Client::new()
-            .post(format!("http://{TEST_HOST}:{port}/"))
-            .form(&[("action", "Reveal")])
-            .send()
-            .await?;
-        assert!(response.status().is_success());
-
-        // Hit 'Forgot'.
-        let response = reqwest::Client::new()
-            .post(format!("http://{TEST_HOST}:{port}/"))
-            .form(&[("action", "Forgot")])
-            .send()
-            .await?;
-        assert!(response.status().is_success());
-
-        // Hit undo.
-        let response = reqwest::Client::new()
-            .post(format!("http://{TEST_HOST}:{port}/"))
-            .form(&[("action", "Undo")])
-            .send()
-            .await?;
-        assert!(response.status().is_success());
-        let html = response.text().await?;
-        assert!(html.contains("baz <span class='cloze'>.............</span>"));
 
         Ok(())
     }

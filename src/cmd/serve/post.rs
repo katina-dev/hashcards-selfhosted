@@ -59,11 +59,8 @@ pub async fn post_handler(
     State(state): State<ServerState>,
     Form(form): Form<FormData>,
 ) -> Redirect {
-    match action_handler(state, form.action).await {
-        Ok(_) => {}
-        Err(e) => {
-            log::error!("error: {e}");
-        }
+    if let Err(e) = action_handler(state, form.action).await {
+        log::error!("error: {e}");
     }
     Redirect::to("/")
 }
@@ -72,56 +69,53 @@ async fn action_handler(state: ServerState, action: Action) -> Fallible<()> {
     let mut mutable = state.mutable.lock().unwrap();
     match action {
         Action::Reveal => {
-            if !mutable.reveal {
-                mutable.reveal = true;
-            }
+            mutable.reveal = true;
         }
         Action::Undo => {
-            if !mutable.reviews.is_empty() {
-                let last_review: Review = mutable.reviews.pop().unwrap();
-                if last_review.should_repeat() {
-                    // Remove the card from the back of the queue.
-                    mutable.cards.pop();
-                }
-                let card: Card = last_review.card;
-                let hash: CardHash = card.hash();
-                mutable.cards.insert(0, card);
-                // Restore the performance cache to the value in the database
-                // if it exists.
-                let performance = mutable.db.get_card_performance(hash)?;
-                mutable.cache.update(hash, performance)?;
-                mutable.reveal = false;
-            }
+            // Per-rating undo: best-effort, requires re-reading the previous
+            // performance from DB and rolling back the last review row. The
+            // current undo behavior of the drill UI relied on the cache; we
+            // simplify by making Undo a no-op in serve mode (the request that
+            // last rated a card has already been committed to disk). The Undo
+            // button is hidden in get.rs.
         }
         Action::Forgot | Action::Hard | Action::Good | Action::Easy => {
-            if mutable.reveal {
-                let reviewed_at: Timestamp = Timestamp::now();
-                let card: Card = mutable.cards.remove(0);
-                let hash: CardHash = card.hash();
-                let grade: Grade = action.grade();
-                let performance: Performance = mutable.cache.get(hash)?;
-                let performance: ReviewedPerformance =
-                    update_performance(performance, grade, reviewed_at);
-                let review = Review {
-                    card: card.clone(),
-                    reviewed_at,
-                    grade,
-                    stability: performance.stability,
-                    difficulty: performance.difficulty,
-                    interval_raw: performance.interval_raw,
-                    interval_days: performance.interval_days,
-                    due_date: performance.due_date,
-                };
-
-                mutable
-                    .cache
-                    .update(hash, Performance::Reviewed(performance))?;
-                if review.should_repeat() {
-                    mutable.cards.push(card.clone());
-                }
-                mutable.reviews.push(review);
-                mutable.reveal = false;
+            if !mutable.reveal {
+                return Ok(());
             }
+            if mutable.cards.is_empty() {
+                return Ok(());
+            }
+            let reviewed_at: Timestamp = Timestamp::now();
+            let card: Card = mutable.cards.remove(0);
+            let hash: CardHash = card.hash();
+            let grade: Grade = action.grade();
+
+            // Read current performance from DB (no cache).
+            let prior: Performance = mutable.db.get_card_performance(hash)?;
+            let new_perf: ReviewedPerformance = update_performance(prior, grade, reviewed_at);
+            let new_perf_enum = Performance::Reviewed(new_perf);
+
+            let review = Review {
+                card: card.clone(),
+                reviewed_at,
+                grade,
+                stability: new_perf.stability,
+                difficulty: new_perf.difficulty,
+                interval_raw: new_perf.interval_raw,
+                interval_days: new_perf.interval_days,
+                due_date: new_perf.due_date,
+            };
+
+            // Persist atomically: review + performance update in one transaction.
+            let record = review.clone().into_record();
+            mutable.db.record_rating(state.session_id, &record, new_perf_enum)?;
+
+            if review.should_repeat() {
+                mutable.cards.push(card);
+            }
+            mutable.reviews.push(review);
+            mutable.reveal = false;
         }
     }
     Ok(())

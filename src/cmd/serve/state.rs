@@ -16,7 +16,6 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use std::sync::Mutex;
 
-use crate::cmd::serve::cache::Cache;
 use crate::cmd::serve::server::AnswerControls;
 use crate::db::Database;
 use crate::db::ReviewRecord;
@@ -32,8 +31,7 @@ pub struct ServerState {
     pub port: u16,
     pub directory: PathBuf,
     pub macros: Vec<(String, String)>,
-    pub total_cards: usize,
-    pub session_started_at: Timestamp,
+    pub session_id: i64,
     pub mutable: Arc<Mutex<MutableState>>,
     pub answer_controls: AnswerControls,
 }
@@ -41,7 +39,6 @@ pub struct ServerState {
 pub struct MutableState {
     pub reveal: bool,
     pub db: Database,
-    pub cache: Cache,
     pub cards: Vec<Card>,
     pub reviews: Vec<Review>,
 }

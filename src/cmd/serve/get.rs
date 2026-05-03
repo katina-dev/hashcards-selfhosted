@@ -62,11 +62,7 @@ fn render_caught_up() -> Markup {
 }
 
 fn render_session_page(state: &ServerState, mutable: &MutableState) -> Fallible<Markup> {
-    let undo_disabled = mutable.reviews.is_empty();
-    let total_cards = state.total_cards;
-    let cards_done = state.total_cards - mutable.cards.len();
-    let percent_done = (cards_done * 100).checked_div(total_cards).unwrap_or(100);
-    let progress_bar_style = format!("width: {}%;", percent_done);
+    let remaining = mutable.cards.len();
     let card = mutable.cards[0].clone();
     let coll_path = state.directory.clone();
     let deck_path = card.relative_file_path(&coll_path)?;
@@ -93,27 +89,28 @@ fn render_session_page(state: &ServerState, mutable: &MutableState) -> Fallible<
         };
         html! {
             form action="/" method="post" {
-                (undo_button(undo_disabled))
                 div.spacer {}
                 div.grades {
                     (grades)
                 }
+                div.spacer {}
             }
         }
     } else {
         html! {
             form action="/" method="post" {
-                (undo_button(undo_disabled))
                 div.spacer {}
                 input id="reveal" type="submit" name="action" value="Reveal" title="Show the answer. Shortcut: space.";
+                div.spacer {}
             }
         }
     };
     let html = html! {
         div.root {
             div.header {
-                div.progress-bar {
-                    div.progress-fill style=(progress_bar_style) {}
+                div.due-count {
+                    (remaining) " due "
+                    a.dashboard-link href="/" { "← Dashboard" }
                 }
             }
             div.card-container {
@@ -177,16 +174,3 @@ fn render_card(card: &Card, reveal: bool, config: &MarkdownRenderConfig) -> Fall
         }
     })
 }
-
-fn undo_button(disabled: bool) -> Markup {
-    if disabled {
-        html! {
-            input id="undo" type="submit" name="action" value="Undo" disabled;
-        }
-    } else {
-        html! {
-            input id="undo" type="submit" name="action" value="Undo" title="Undo last action. Shortcut: u.";
-        }
-    }
-}
-
