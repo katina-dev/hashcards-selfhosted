@@ -277,6 +277,13 @@ impl Database {
         Ok(count > 0)
     }
 
+    /// Most recent review timestamp across the entire DB. None if no reviews yet.
+    pub fn last_review_timestamp(&self) -> Fallible<Option<Timestamp>> {
+        let sql = "select max(reviewed_at) from reviews;";
+        let result: Option<Timestamp> = self.conn.query_row(sql, [], |row| row.get(0))?;
+        Ok(result)
+    }
+
     /// Total number of review records in the database.
     pub fn total_reviews(&self) -> Fallible<u64> {
         let sql = "select count(*) from reviews;";
@@ -506,6 +513,29 @@ mod tests {
             err.to_string(),
             format!("error: No performance data found for card with hash {card_hash}")
         );
+        Ok(())
+    }
+
+    #[test]
+    fn test_last_review_timestamp() -> Fallible<()> {
+        let mut db = Database::new(":memory:")?;
+        assert_eq!(db.last_review_timestamp()?, None);
+
+        let card_hash = CardHash::hash_bytes(b"a");
+        let now = Timestamp::now();
+        db.insert_card(card_hash, now)?;
+        let review = ReviewRecord {
+            card_hash,
+            reviewed_at: now,
+            grade: Grade::Good,
+            stability: 2.0,
+            difficulty: 2.0,
+            interval_raw: 1.0,
+            interval_days: 1,
+            due_date: now.date(),
+        };
+        db.save_session(now, now, vec![review])?;
+        assert_eq!(db.last_review_timestamp()?, Some(now));
         Ok(())
     }
 
