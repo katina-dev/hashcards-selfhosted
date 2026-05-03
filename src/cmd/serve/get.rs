@@ -12,11 +12,13 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use axum::extract::Query;
 use axum::extract::State;
 use axum::http::StatusCode;
 use axum::response::Html;
 use maud::Markup;
 use maud::html;
+use serde::Deserialize;
 
 use crate::cmd::serve::server::AnswerControls;
 use crate::cmd::serve::state::AppState;
@@ -29,8 +31,16 @@ use crate::types::card::Card;
 use crate::types::card::CardType;
 use crate::types::date::Date;
 
-pub async fn get_handler(State(state): State<AppState>) -> (StatusCode, Html<String>) {
-    let html = match inner(state).await {
+#[derive(Deserialize)]
+pub struct DrillQuery {
+    pub deck: Option<String>,
+}
+
+pub async fn get_handler(
+    State(state): State<AppState>,
+    Query(q): Query<DrillQuery>,
+) -> (StatusCode, Html<String>) {
+    let html = match inner(state, q.deck).await {
         Ok(html) => html,
         Err(e) => page_template(html! {
             div.error {
@@ -42,16 +52,20 @@ pub async fn get_handler(State(state): State<AppState>) -> (StatusCode, Html<Str
     (StatusCode::OK, Html(html.into_string()))
 }
 
-async fn inner(state: AppState) -> Fallible<Markup> {
+async fn inner(state: AppState, deck: Option<String>) -> Fallible<Markup> {
     let today = Date::today();
-    let queue = state.compute_due_queue(today)?;
-    let session = state.session_state.lock().unwrap();
+    let mut filtered_state = state.clone();
+    if let Some(d) = deck {
+        filtered_state.filters.deck_filter = Some(d);
+    }
+    let queue = filtered_state.compute_due_queue(today)?;
+    let session = filtered_state.session_state.lock().unwrap();
     let body = if queue.is_empty() {
         render_caught_up()
     } else {
         let remaining = queue.len();
         let card = queue.into_iter().next().unwrap();
-        render_card_page(&state, &session, &card, remaining)?
+        render_card_page(&filtered_state, &session, &card, remaining)?
     };
     Ok(page_template(body))
 }

@@ -256,6 +256,36 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn test_drill_deck_filter() -> Fallible<()> {
+        let port = pick_unused_port().unwrap();
+        let directory = create_tmp_copy_of_test_directory()?;
+        let session_started_at = Timestamp::now();
+        let config = ServerConfig {
+            directory: Some(directory),
+            host: TEST_HOST.to_string(),
+            port,
+            session_started_at,
+            card_limit: None,
+            new_card_limit: None,
+            deck_filter: None,
+            shuffle: false,
+            answer_controls: AnswerControls::Full,
+            bury_siblings: false,
+            rescan_interval: None,
+            no_watch: true,
+        };
+        spawn(async move { start_server(config).await });
+        wait_for_server(TEST_HOST, port).await?;
+
+        let response = reqwest::get(format!(
+            "http://{TEST_HOST}:{port}/drill?deck=Deck"
+        ))
+        .await?;
+        assert_eq!(response.status(), StatusCode::OK);
+        Ok(())
+    }
+
+    #[tokio::test]
     async fn test_answer_without_reveal() -> Fallible<()> {
         let port = pick_unused_port().unwrap();
         let directory = create_tmp_copy_of_test_directory()?;
