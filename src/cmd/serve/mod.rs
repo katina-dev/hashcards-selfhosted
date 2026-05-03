@@ -13,6 +13,7 @@
 // limitations under the License.
 
 mod api;
+mod dashboard;
 mod get;
 mod katex;
 mod post;
@@ -148,7 +149,7 @@ mod tests {
         let response = reqwest::get(format!("http://{TEST_HOST}:{port}/file/foo.png")).await?;
         assert_eq!(response.status(), StatusCode::NOT_FOUND);
 
-        // Hit the root endpoint.
+        // Hit the root endpoint (dashboard).
         let response = reqwest::get(format!("http://{TEST_HOST}:{port}/")).await?;
         assert!(response.status().is_success());
         assert_eq!(
@@ -156,7 +157,7 @@ mod tests {
             "text/html; charset=utf-8"
         );
         let html = response.text().await?;
-        assert!(html.contains("baz <span class='cloze'>.............</span>"));
+        assert!(html.contains("cards due") || html.contains("caught up"));
 
         // Hit reveal.
         let response = reqwest::Client::new()
@@ -198,6 +199,34 @@ mod tests {
         let html = response.text().await?;
         assert!(html.contains("You're caught up."));
 
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_dashboard_renders() -> Fallible<()> {
+        let port = pick_unused_port().unwrap();
+        let directory = create_tmp_copy_of_test_directory()?;
+        let session_started_at = Timestamp::now();
+        let config = ServerConfig {
+            directory: Some(directory),
+            host: TEST_HOST.to_string(),
+            port,
+            session_started_at,
+            card_limit: None,
+            new_card_limit: None,
+            deck_filter: None,
+            shuffle: false,
+            answer_controls: AnswerControls::Full,
+            bury_siblings: false,
+            rescan_interval: None,
+            no_watch: true,
+        };
+        spawn(async move { start_server(config).await });
+        wait_for_server(TEST_HOST, port).await?;
+        let response = reqwest::get(format!("http://{TEST_HOST}:{port}/")).await?;
+        assert_eq!(response.status(), StatusCode::OK);
+        let html = response.text().await?;
+        assert!(html.contains("cards due") || html.contains("caught up"));
         Ok(())
     }
 

@@ -63,7 +63,7 @@ pub async fn post_handler(
     if let Err(e) = action_handler(state, form.action).await {
         log::error!("error: {e}");
     }
-    Redirect::to("/")
+    Redirect::to("/drill")
 }
 
 async fn action_handler(state: AppState, action: Action) -> Fallible<()> {

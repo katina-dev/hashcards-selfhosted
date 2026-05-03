@@ -37,6 +37,7 @@ use tokio::select;
 use crate::cmd::serve::api::api_cards_handler;
 use crate::cmd::serve::api::api_decks_handler;
 use crate::cmd::serve::api::healthz_handler;
+use crate::cmd::serve::dashboard::dashboard_handler;
 use crate::cmd::serve::get::get_handler;
 use crate::cmd::serve::katex::KATEX_CSS_URL;
 use crate::cmd::serve::katex::KATEX_JS_URL;
@@ -144,7 +145,7 @@ pub async fn start_server(config: ServerConfig) -> Fallible<()> {
     )?;
 
     let app = Router::new()
-        .route("/", get(get_handler))
+        .route("/", get(dashboard_handler))
         .route("/", post(post_handler))
         .route("/drill", get(get_handler))
         .route("/healthz", get(healthz_handler))
