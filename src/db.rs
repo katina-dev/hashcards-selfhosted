@@ -291,6 +291,31 @@ impl Database {
         Ok(count as u64)
     }
 
+    /// Fraction of ratings in the last `window_days` that were Good or Easy.
+    /// Returns 0.0 if there are no reviews in the window.
+    pub fn retention_rate(&self, window_days: i64) -> Fallible<f32> {
+        use chrono::Duration;
+        let cutoff = Date::today().into_inner() + Duration::days(-window_days);
+        let cutoff = Date::new(cutoff);
+        let sql = "select grade from reviews where substr(reviewed_at, 1, 10) >= ?;";
+        let mut stmt = self.conn.prepare(sql)?;
+        let mut total: u32 = 0;
+        let mut passed: u32 = 0;
+        let mut rows = stmt.query(params![cutoff])?;
+        while let Some(row) = rows.next()? {
+            let grade: Grade = row.get(0)?;
+            total += 1;
+            if matches!(grade, Grade::Good | Grade::Easy) {
+                passed += 1;
+            }
+        }
+        if total == 0 {
+            Ok(0.0)
+        } else {
+            Ok(passed as f32 / total as f32)
+        }
+    }
+
     /// Count of reviews per day for each date in [start, end] (inclusive).
     /// Only days with at least one review are returned.
     pub fn count_reviews_in_date_range(
@@ -750,6 +775,33 @@ mod tests {
         };
         db.save_session(ts, ts, vec![review])?;
         assert_eq!(db.current_streak(today)?, 1);
+        Ok(())
+    }
+
+    #[test]
+    fn test_retention_rate() -> Fallible<()> {
+        let mut db = Database::new(":memory:")?;
+        let now = Timestamp::now();
+        let card_hash = CardHash::hash_bytes(b"a");
+        db.insert_card(card_hash, now)?;
+
+        // No reviews => 0.0 by convention.
+        assert_eq!(db.retention_rate(30)?, 0.0);
+
+        // 3 Good, 1 Forgot in window: retention = 0.75
+        let make_review = |grade: Grade| ReviewRecord {
+            card_hash, reviewed_at: now, grade,
+            stability: 2.0, difficulty: 2.0, interval_raw: 1.0, interval_days: 1,
+            due_date: now.date(),
+        };
+        db.save_session(now, now, vec![
+            make_review(Grade::Good),
+            make_review(Grade::Good),
+            make_review(Grade::Good),
+            make_review(Grade::Forgot),
+        ])?;
+        let r = db.retention_rate(30)?;
+        assert!((r - 0.75).abs() < 1e-6, "expected ~0.75, got {r}");
         Ok(())
     }
 }
