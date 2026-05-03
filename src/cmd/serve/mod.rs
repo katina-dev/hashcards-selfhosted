@@ -12,6 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+mod api;
 mod get;
 mod katex;
 mod post;
@@ -197,6 +198,60 @@ mod tests {
         let html = response.text().await?;
         assert!(html.contains("You're caught up."));
 
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_healthz() -> Fallible<()> {
+        let port = pick_unused_port().unwrap();
+        let directory = create_tmp_copy_of_test_directory()?;
+        let session_started_at = Timestamp::now();
+        let config = ServerConfig {
+            directory: Some(directory),
+            host: TEST_HOST.to_string(),
+            port,
+            session_started_at,
+            card_limit: None,
+            new_card_limit: None,
+            deck_filter: None,
+            shuffle: false,
+            answer_controls: AnswerControls::Full,
+            bury_siblings: false,
+            rescan_interval: None,
+            no_watch: true,
+        };
+        spawn(async move { start_server(config).await });
+        wait_for_server(TEST_HOST, port).await?;
+        let response = reqwest::get(format!("http://{TEST_HOST}:{port}/healthz")).await?;
+        assert_eq!(response.status(), StatusCode::OK);
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_api_decks_returns_json() -> Fallible<()> {
+        let port = pick_unused_port().unwrap();
+        let directory = create_tmp_copy_of_test_directory()?;
+        let session_started_at = Timestamp::now();
+        let config = ServerConfig {
+            directory: Some(directory),
+            host: TEST_HOST.to_string(),
+            port,
+            session_started_at,
+            card_limit: None,
+            new_card_limit: None,
+            deck_filter: None,
+            shuffle: false,
+            answer_controls: AnswerControls::Full,
+            bury_siblings: false,
+            rescan_interval: None,
+            no_watch: true,
+        };
+        spawn(async move { start_server(config).await });
+        wait_for_server(TEST_HOST, port).await?;
+        let response = reqwest::get(format!("http://{TEST_HOST}:{port}/api/decks")).await?;
+        assert_eq!(response.status(), StatusCode::OK);
+        let ct = response.headers().get("content-type").unwrap();
+        assert!(ct.to_str().unwrap().contains("application/json"));
         Ok(())
     }
 
