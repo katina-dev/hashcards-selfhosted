@@ -323,6 +323,49 @@ impl Database {
         Ok(count as usize)
     }
 
+    /// Current consecutive-day streak of review activity ending at `today`.
+    /// If `today` has no reviews but `today - 1` does, the streak counts back
+    /// from yesterday — this avoids a fresh streak resetting before the user
+    /// has done their reviews for the day.
+    pub fn current_streak(&self, today: Date) -> Fallible<u32> {
+        use chrono::Duration;
+
+        let sql = "select distinct substr(reviewed_at, 1, 10) from reviews;";
+        let mut stmt = self.conn.prepare(sql)?;
+        let mut active: HashSet<Date> = HashSet::new();
+        let mut rows = stmt.query([])?;
+        while let Some(row) = rows.next()? {
+            let d: Date = row.get(0)?;
+            active.insert(d);
+        }
+
+        if active.is_empty() {
+            return Ok(0);
+        }
+
+        // Anchor: today if today has reviews, else yesterday if yesterday has reviews, else 0.
+        let today_in = today.into_inner();
+        let yesterday = Date::new(today_in + Duration::days(-1));
+        let mut cursor: Date = if active.contains(&today) {
+            today
+        } else if active.contains(&yesterday) {
+            yesterday
+        } else {
+            return Ok(0);
+        };
+
+        let mut streak: u32 = 0;
+        loop {
+            if active.contains(&cursor) {
+                streak += 1;
+                cursor = Date::new(cursor.into_inner() + Duration::days(-1));
+            } else {
+                break;
+            }
+        }
+        Ok(streak)
+    }
+
     /// Get the list of all sessions in the database.
     pub fn get_all_sessions(&self) -> Fallible<Vec<SessionRow>> {
         let sql = "select session_id, started_at, ended_at from sessions order by started_at;";
@@ -614,6 +657,99 @@ mod tests {
         assert_eq!(on_today, 1);
         let on_yesterday: u32 = counts.iter().find(|(d, _)| *d == yesterday).map(|(_, c)| *c).unwrap_or(0);
         assert_eq!(on_yesterday, 0);
+        Ok(())
+    }
+
+    #[test]
+    fn test_current_streak_zero() -> Fallible<()> {
+        let db = Database::new(":memory:")?;
+        let today = Date::today();
+        assert_eq!(db.current_streak(today)?, 0);
+        Ok(())
+    }
+
+    #[test]
+    fn test_current_streak_today_only() -> Fallible<()> {
+        let mut db = Database::new(":memory:")?;
+        let now = Timestamp::now();
+        let card_hash = CardHash::hash_bytes(b"a");
+        db.insert_card(card_hash, now)?;
+        let review = ReviewRecord {
+            card_hash, reviewed_at: now, grade: Grade::Good,
+            stability: 2.0, difficulty: 2.0, interval_raw: 1.0, interval_days: 1,
+            due_date: now.date(),
+        };
+        db.save_session(now, now, vec![review])?;
+        assert_eq!(db.current_streak(now.date())?, 1);
+        Ok(())
+    }
+
+    #[test]
+    fn test_current_streak_continuous() -> Fallible<()> {
+        use chrono::Duration;
+        let mut db = Database::new(":memory:")?;
+        let today = Date::today();
+        let card_hash = CardHash::hash_bytes(b"a");
+        let now = Timestamp::now();
+        db.insert_card(card_hash, now)?;
+
+        // Three reviews on three consecutive days ending today.
+        for offset in [-2, -1, 0] {
+            let d = today.into_inner() + Duration::days(offset);
+            let ts = Timestamp::new(d.and_hms_opt(12, 0, 0).unwrap());
+            let review = ReviewRecord {
+                card_hash, reviewed_at: ts, grade: Grade::Good,
+                stability: 2.0, difficulty: 2.0, interval_raw: 1.0, interval_days: 1,
+                due_date: ts.date(),
+            };
+            db.save_session(ts, ts, vec![review])?;
+        }
+        assert_eq!(db.current_streak(today)?, 3);
+        Ok(())
+    }
+
+    #[test]
+    fn test_current_streak_broken_by_gap() -> Fallible<()> {
+        use chrono::Duration;
+        let mut db = Database::new(":memory:")?;
+        let today = Date::today();
+        let card_hash = CardHash::hash_bytes(b"a");
+        let now = Timestamp::now();
+        db.insert_card(card_hash, now)?;
+
+        // Today and 3 days ago — gap means streak is just today.
+        for offset in [-3i64, 0i64] {
+            let d = today.into_inner() + Duration::days(offset);
+            let ts = Timestamp::new(d.and_hms_opt(12, 0, 0).unwrap());
+            let review = ReviewRecord {
+                card_hash, reviewed_at: ts, grade: Grade::Good,
+                stability: 2.0, difficulty: 2.0, interval_raw: 1.0, interval_days: 1,
+                due_date: ts.date(),
+            };
+            db.save_session(ts, ts, vec![review])?;
+        }
+        assert_eq!(db.current_streak(today)?, 1);
+        Ok(())
+    }
+
+    #[test]
+    fn test_current_streak_yesterday_counts() -> Fallible<()> {
+        use chrono::Duration;
+        // If today has no reviews but yesterday does, streak counts back from yesterday.
+        let mut db = Database::new(":memory:")?;
+        let today = Date::today();
+        let card_hash = CardHash::hash_bytes(b"a");
+        let now = Timestamp::now();
+        db.insert_card(card_hash, now)?;
+        let yesterday = today.into_inner() + Duration::days(-1);
+        let ts = Timestamp::new(yesterday.and_hms_opt(12, 0, 0).unwrap());
+        let review = ReviewRecord {
+            card_hash, reviewed_at: ts, grade: Grade::Good,
+            stability: 2.0, difficulty: 2.0, interval_raw: 1.0, interval_days: 1,
+            due_date: ts.date(),
+        };
+        db.save_session(ts, ts, vec![review])?;
+        assert_eq!(db.current_streak(today)?, 1);
         Ok(())
     }
 }
