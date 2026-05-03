@@ -291,6 +291,31 @@ impl Database {
         Ok(count as u64)
     }
 
+    /// Count of reviews per day for each date in [start, end] (inclusive).
+    /// Only days with at least one review are returned.
+    pub fn count_reviews_in_date_range(
+        &self,
+        start: Date,
+        end: Date,
+    ) -> Fallible<Vec<(Date, u32)>> {
+        let sql = "select substr(reviewed_at, 1, 10) as d, count(*) \
+                   from reviews \
+                   where d >= ? and d <= ? \
+                   group by d \
+                   order by d;";
+        let mut stmt = self.conn.prepare(sql)?;
+        let rows = stmt.query_map(params![start, end], |row| {
+            let d: Date = row.get(0)?;
+            let c: i64 = row.get(1)?;
+            Ok((d, c as u32))
+        })?;
+        let mut out = Vec::new();
+        for r in rows {
+            out.push(r?);
+        }
+        Ok(out)
+    }
+
     /// Count the number of reviews performed in the given date.
     pub fn count_reviews_in_date(&self, date: Date) -> Fallible<usize> {
         let sql = "select count(*) from reviews where substr(reviewed_at, 1, 10) = ?;";
@@ -559,6 +584,36 @@ mod tests {
         };
         db.save_session(now, now, vec![review])?;
         assert_eq!(db.total_reviews()?, 1);
+        Ok(())
+    }
+
+    #[test]
+    fn test_count_reviews_in_date_range() -> Fallible<()> {
+        let mut db = Database::new(":memory:")?;
+        let card_hash = CardHash::hash_bytes(b"a");
+        let now = Timestamp::now();
+        db.insert_card(card_hash, now)?;
+        let review = ReviewRecord {
+            card_hash,
+            reviewed_at: now,
+            grade: Grade::Good,
+            stability: 2.0,
+            difficulty: 2.0,
+            interval_raw: 1.0,
+            interval_days: 1,
+            due_date: now.date(),
+        };
+        db.save_session(now, now, vec![review])?;
+
+        let today = now.date();
+        let yesterday = Date::new(today.into_inner().pred_opt().unwrap());
+        let tomorrow = Date::new(today.into_inner().succ_opt().unwrap());
+
+        let counts = db.count_reviews_in_date_range(yesterday, tomorrow)?;
+        let on_today: u32 = counts.iter().find(|(d, _)| *d == today).map(|(_, c)| *c).unwrap_or(0);
+        assert_eq!(on_today, 1);
+        let on_yesterday: u32 = counts.iter().find(|(d, _)| *d == yesterday).map(|(_, c)| *c).unwrap_or(0);
+        assert_eq!(on_yesterday, 0);
         Ok(())
     }
 }
