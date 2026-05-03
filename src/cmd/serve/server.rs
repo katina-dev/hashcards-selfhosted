@@ -18,8 +18,7 @@ use std::fmt::Formatter;
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::sync::Mutex;
-use std::time::SystemTime;
-use std::time::UNIX_EPOCH;
+use std::sync::RwLock;
 
 use axum::Router;
 use axum::extract::Path;
@@ -44,17 +43,16 @@ use crate::cmd::serve::katex::katex_font_handler;
 use crate::cmd::serve::katex::katex_js_handler;
 use crate::cmd::serve::katex::katex_mhchem_js_handler;
 use crate::cmd::serve::post::post_handler;
-use crate::cmd::serve::state::MutableState;
-use crate::cmd::serve::state::ServerState;
+use crate::cmd::serve::state::AppState;
+use crate::cmd::serve::state::CardIndex;
+use crate::cmd::serve::state::ServeFilters;
+use crate::cmd::serve::state::SessionState;
 use crate::collection::Collection;
 use crate::db::Database;
 use crate::error::Fallible;
 use crate::media::load::MediaLoader;
-use crate::rng::TinyRng;
-use crate::rng::shuffle;
 use crate::types::card::Card;
 use crate::types::card_hash::CardHash;
-use crate::types::date::Date;
 use crate::types::timestamp::Timestamp;
 use crate::utils::CACHE_CONTROL_IMMUTABLE;
 
@@ -98,8 +96,6 @@ pub async fn start_server(config: ServerConfig) -> Fallible<()> {
         macros,
     } = Collection::new(config.directory)?;
 
-    let today: Date = config.session_started_at.date();
-
     let db_hashes: HashSet<CardHash> = db.card_hashes()?;
     for card in cards.iter() {
         if !db_hashes.contains(&card.hash()) {
@@ -109,49 +105,26 @@ pub async fn start_server(config: ServerConfig) -> Fallible<()> {
 
     let session_id: i64 = db.create_session(config.session_started_at)?;
 
-    let due_today: HashSet<CardHash> = db.due_today(today)?;
-    let due_today: Vec<Card> = cards
-        .into_iter()
-        .filter(|card| due_today.contains(&card.hash()))
-        .collect();
-
-    let due_today: Vec<Card> = filter_deck(
-        &db,
-        due_today,
-        config.card_limit,
-        config.new_card_limit,
-        config.deck_filter,
-    )?;
-
-    let due_today: Vec<Card> = if config.bury_siblings {
-        bury_siblings(due_today)
-    } else {
-        due_today
-    };
-
-    let due_today: Vec<Card> = if config.shuffle {
-        let seed = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .unwrap()
-            .as_nanos() as u64;
-        let mut rng = TinyRng::from_seed(seed);
-        shuffle(due_today, &mut rng)
-    } else {
-        due_today
-    };
-
-    let state = ServerState {
+    let card_index = CardIndex { cards };
+    let state = AppState {
         port: config.port,
         directory,
         macros,
         session_id,
-        mutable: Arc::new(Mutex::new(MutableState {
-            reveal: false,
-            db,
-            cards: due_today,
-            reviews: Vec::new(),
-        })),
         answer_controls: config.answer_controls,
+        filters: ServeFilters {
+            card_limit: config.card_limit,
+            new_card_limit: config.new_card_limit,
+            deck_filter: config.deck_filter,
+            bury_siblings: config.bury_siblings,
+            shuffle: config.shuffle,
+        },
+        cards: Arc::new(RwLock::new(card_index)),
+        db: Arc::new(Mutex::new(db)),
+        session_state: Arc::new(Mutex::new(SessionState {
+            reveal: false,
+            relapse_queue: Vec::new(),
+        })),
     };
 
     let app = Router::new()
@@ -178,7 +151,7 @@ pub async fn start_server(config: ServerConfig) -> Fallible<()> {
 }
 
 async fn script_handler(
-    State(state): State<ServerState>,
+    State(state): State<AppState>,
 ) -> (StatusCode, [(HeaderName, &'static str); 1], String) {
     let mut content = String::new();
     content.push_str("let MACROS = {};\n");
@@ -227,7 +200,7 @@ async fn not_found_handler() -> (StatusCode, Html<String>) {
 }
 
 async fn file_handler(
-    State(state): State<ServerState>,
+    State(state): State<AppState>,
     Path(path): Path<String>,
 ) -> (StatusCode, [(HeaderName, &'static str); 1], Vec<u8>) {
     let loader = MediaLoader::new(state.directory.clone());
@@ -296,7 +269,7 @@ async fn shutdown_signal() {
     }
 }
 
-fn filter_deck(
+pub fn filter_deck(
     db: &Database,
     deck: Vec<Card>,
     card_limit: Option<usize>,
@@ -341,7 +314,7 @@ fn filter_deck(
     Ok(deck)
 }
 
-fn bury_siblings(deck: Vec<Card>) -> Vec<Card> {
+pub fn bury_siblings(deck: Vec<Card>) -> Vec<Card> {
     let mut seen_families = HashSet::new();
     let mut result = Vec::new();
     for card in deck.into_iter() {

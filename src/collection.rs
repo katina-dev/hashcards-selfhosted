@@ -91,4 +91,28 @@ impl Collection {
             macros,
         })
     }
+
+    /// Re-parse the .md files in `directory` and return the new card list and
+    /// macros, leaving any existing Database handle untouched. Used by the
+    /// file watcher to refresh the in-memory card index.
+    pub fn parse_only(directory: &PathBuf) -> Fallible<(Vec<Card>, Vec<(String, String)>)> {
+        let macros: Vec<(String, String)> = {
+            let mut macros = Vec::new();
+            let macros_path = directory.join("macros.tex");
+            if macros_path.exists() {
+                let content = read_to_string(macros_path)?;
+                for line in content.lines() {
+                    if !line.trim_start().starts_with('%') {
+                        if let Some((name, definition)) = line.split_once(' ') {
+                            macros.push((name.to_string(), definition.to_string()));
+                        }
+                    }
+                }
+            }
+            macros
+        };
+        let cards = parse_deck(directory)?;
+        validate_media_files(&cards, directory)?;
+        Ok((cards, macros))
+    }
 }

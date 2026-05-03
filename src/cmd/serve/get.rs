@@ -19,16 +19,17 @@ use maud::Markup;
 use maud::html;
 
 use crate::cmd::serve::server::AnswerControls;
-use crate::cmd::serve::state::MutableState;
-use crate::cmd::serve::state::ServerState;
+use crate::cmd::serve::state::AppState;
+use crate::cmd::serve::state::SessionState;
 use crate::cmd::serve::template::page_template;
 use crate::error::Fallible;
 use crate::markdown::MarkdownRenderConfig;
 use crate::media::resolve::MediaResolverBuilder;
 use crate::types::card::Card;
 use crate::types::card::CardType;
+use crate::types::date::Date;
 
-pub async fn get_handler(State(state): State<ServerState>) -> (StatusCode, Html<String>) {
+pub async fn get_handler(State(state): State<AppState>) -> (StatusCode, Html<String>) {
     let html = match inner(state).await {
         Ok(html) => html,
         Err(e) => page_template(html! {
@@ -41,15 +42,18 @@ pub async fn get_handler(State(state): State<ServerState>) -> (StatusCode, Html<
     (StatusCode::OK, Html(html.into_string()))
 }
 
-async fn inner(state: ServerState) -> Fallible<Markup> {
-    let mutable = state.mutable.lock().unwrap();
-    let body = if mutable.cards.is_empty() {
+async fn inner(state: AppState) -> Fallible<Markup> {
+    let today = Date::today();
+    let queue = state.compute_due_queue(today)?;
+    let session = state.session_state.lock().unwrap();
+    let body = if queue.is_empty() {
         render_caught_up()
     } else {
-        render_session_page(&state, &mutable)?
+        let remaining = queue.len();
+        let card = queue.into_iter().next().unwrap();
+        render_card_page(&state, &session, &card, remaining)?
     };
-    let html = page_template(body);
-    Ok(html)
+    Ok(page_template(body))
 }
 
 fn render_caught_up() -> Markup {
@@ -61,9 +65,12 @@ fn render_caught_up() -> Markup {
     }
 }
 
-fn render_session_page(state: &ServerState, mutable: &MutableState) -> Fallible<Markup> {
-    let remaining = mutable.cards.len();
-    let card = mutable.cards[0].clone();
+fn render_card_page(
+    state: &AppState,
+    session: &SessionState,
+    card: &Card,
+    remaining: usize,
+) -> Fallible<Markup> {
     let coll_path = state.directory.clone();
     let deck_path = card.relative_file_path(&coll_path)?;
     let config = MarkdownRenderConfig {
@@ -73,8 +80,8 @@ fn render_session_page(state: &ServerState, mutable: &MutableState) -> Fallible<
             .build()?,
         port: state.port,
     };
-    let card_content = render_card(&card, mutable.reveal, &config)?;
-    let card_controls = if mutable.reveal {
+    let card_content = render_card(card, session.reveal, &config)?;
+    let card_controls = if session.reveal {
         let grades = match state.answer_controls {
             AnswerControls::Binary => html! {
                 input id="forgot" type="submit" name="action" value="Forgot" title="Mark card as forgotten.";

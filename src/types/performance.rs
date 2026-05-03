@@ -190,6 +190,35 @@ mod maturity_tests {
 }
 
 #[cfg(test)]
+mod forgot_relapse_tests {
+    use super::*;
+
+    /// Verify that Forgot and Hard always schedule due_date to TOMORROW (not
+    /// today). This confirms why the relapse_queue is necessary: the DB will
+    /// not return these cards from due_today() on the same day they are rated.
+    #[test]
+    fn test_forgot_due_date_is_tomorrow() {
+        use crate::fsrs::Grade;
+        let now = Timestamp::now();
+        let today = now.date();
+        let p = update_performance(Performance::New, Grade::Forgot, now);
+        // MIN_INTERVAL = 1.0, so interval_days is at least 1.
+        assert!(p.interval_days >= 1, "Forgot interval_days should be >= 1");
+        assert!(p.due_date > today, "Forgot due_date should be after today");
+    }
+
+    #[test]
+    fn test_hard_due_date_is_tomorrow() {
+        use crate::fsrs::Grade;
+        let now = Timestamp::now();
+        let today = now.date();
+        let p = update_performance(Performance::New, Grade::Hard, now);
+        assert!(p.interval_days >= 1, "Hard interval_days should be >= 1");
+        assert!(p.due_date > today, "Hard due_date should be after today");
+    }
+}
+
+#[cfg(test)]
 mod tests {
     use super::*;
 

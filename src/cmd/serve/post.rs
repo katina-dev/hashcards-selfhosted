@@ -17,12 +17,13 @@ use axum::extract::State;
 use axum::response::Redirect;
 use serde::Deserialize;
 
-use crate::cmd::serve::state::Review;
-use crate::cmd::serve::state::ServerState;
+use crate::cmd::serve::state::AppState;
+use crate::db::ReviewRecord;
 use crate::error::Fallible;
 use crate::fsrs::Grade;
 use crate::types::card::Card;
 use crate::types::card_hash::CardHash;
+use crate::types::date::Date;
 use crate::types::performance::Performance;
 use crate::types::performance::ReviewedPerformance;
 use crate::types::performance::update_performance;
@@ -56,7 +57,7 @@ pub struct FormData {
 }
 
 pub async fn post_handler(
-    State(state): State<ServerState>,
+    State(state): State<AppState>,
     Form(form): Form<FormData>,
 ) -> Redirect {
     if let Err(e) = action_handler(state, form.action).await {
@@ -65,11 +66,10 @@ pub async fn post_handler(
     Redirect::to("/")
 }
 
-async fn action_handler(state: ServerState, action: Action) -> Fallible<()> {
-    let mut mutable = state.mutable.lock().unwrap();
+async fn action_handler(state: AppState, action: Action) -> Fallible<()> {
     match action {
         Action::Reveal => {
-            mutable.reveal = true;
+            state.session_state.lock().unwrap().reveal = true;
         }
         Action::Undo => {
             // Per-rating undo: best-effort, requires re-reading the previous
@@ -80,24 +80,32 @@ async fn action_handler(state: ServerState, action: Action) -> Fallible<()> {
             // button is hidden in get.rs.
         }
         Action::Forgot | Action::Hard | Action::Good | Action::Easy => {
-            if !mutable.reveal {
+            let today = Date::today();
+            let session = state.session_state.lock().unwrap();
+            if !session.reveal {
                 return Ok(());
             }
-            if mutable.cards.is_empty() {
-                return Ok(());
-            }
-            let reviewed_at: Timestamp = Timestamp::now();
-            let card: Card = mutable.cards.remove(0);
-            let hash: CardHash = card.hash();
-            let grade: Grade = action.grade();
+            // Pick the current card the same way the GET handler does.
+            // We must drop the session lock before calling compute_due_queue
+            // (which acquires session_state lock internally).
+            drop(session);
 
-            // Read current performance from DB (no cache).
-            let prior: Performance = mutable.db.get_card_performance(hash)?;
+            let queue = state.compute_due_queue(today)?;
+            if queue.is_empty() {
+                return Ok(());
+            }
+            let card: Card = queue.into_iter().next().unwrap();
+            let hash: CardHash = card.hash();
+            let grade = action.grade();
+            let reviewed_at = Timestamp::now();
+
+            let mut db = state.db.lock().unwrap();
+            let prior: Performance = db.get_card_performance(hash)?;
             let new_perf: ReviewedPerformance = update_performance(prior, grade, reviewed_at);
             let new_perf_enum = Performance::Reviewed(new_perf);
 
-            let review = Review {
-                card: card.clone(),
+            let record = ReviewRecord {
+                card_hash: hash,
                 reviewed_at,
                 grade,
                 stability: new_perf.stability,
@@ -106,16 +114,25 @@ async fn action_handler(state: ServerState, action: Action) -> Fallible<()> {
                 interval_days: new_perf.interval_days,
                 due_date: new_perf.due_date,
             };
+            db.record_rating(state.session_id, &record, new_perf_enum)?;
+            drop(db);
 
-            // Persist atomically: review + performance update in one transaction.
-            let record = review.clone().into_record();
-            mutable.db.record_rating(state.session_id, &record, new_perf_enum)?;
-
-            if review.should_repeat() {
-                mutable.cards.push(card);
+            // If the card was forgotten or rated Hard, it needs to be
+            // re-shown this session. Because MIN_INTERVAL=1, the DB schedules
+            // it for tomorrow; we track it in the relapse queue so it
+            // re-surfaces before the other due cards.
+            let mut session = state.session_state.lock().unwrap();
+            if grade == Grade::Forgot || grade == Grade::Hard {
+                // Avoid duplicates in the relapse queue.
+                if !session.relapse_queue.contains(&hash) {
+                    session.relapse_queue.push(hash);
+                }
+            } else {
+                // Card was rated Good or Easy; remove from relapse queue if
+                // it was there from a prior relapse.
+                session.relapse_queue.retain(|h| h != &hash);
             }
-            mutable.reviews.push(review);
-            mutable.reveal = false;
+            session.reveal = false;
         }
     }
     Ok(())

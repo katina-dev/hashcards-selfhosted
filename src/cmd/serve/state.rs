@@ -12,64 +12,126 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use std::collections::HashSet;
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::sync::Mutex;
+use std::sync::RwLock;
+use std::time::SystemTime;
+use std::time::UNIX_EPOCH;
 
 use crate::cmd::serve::server::AnswerControls;
+use crate::cmd::serve::server::bury_siblings;
+use crate::cmd::serve::server::filter_deck;
 use crate::db::Database;
-use crate::db::ReviewRecord;
-use crate::fsrs::Difficulty;
-use crate::fsrs::Grade;
-use crate::fsrs::Stability;
+use crate::error::Fallible;
+use crate::rng::TinyRng;
+use crate::rng::shuffle;
 use crate::types::card::Card;
+use crate::types::card_hash::CardHash;
 use crate::types::date::Date;
-use crate::types::timestamp::Timestamp;
+
+pub struct CardIndex {
+    pub cards: Vec<Card>,
+}
 
 #[derive(Clone)]
-pub struct ServerState {
+pub struct ServeFilters {
+    pub card_limit: Option<usize>,
+    pub new_card_limit: Option<usize>,
+    pub deck_filter: Option<String>,
+    pub bury_siblings: bool,
+    pub shuffle: bool,
+}
+
+#[derive(Clone)]
+pub struct AppState {
     pub port: u16,
     pub directory: PathBuf,
     pub macros: Vec<(String, String)>,
     pub session_id: i64,
-    pub mutable: Arc<Mutex<MutableState>>,
     pub answer_controls: AnswerControls,
+    pub filters: ServeFilters,
+    pub cards: Arc<RwLock<CardIndex>>,
+    pub db: Arc<Mutex<Database>>,
+    pub session_state: Arc<Mutex<SessionState>>,
 }
 
-pub struct MutableState {
+pub struct SessionState {
     pub reveal: bool,
-    pub db: Database,
-    pub cards: Vec<Card>,
-    pub reviews: Vec<Review>,
+    /// Cards that were rated Forgot/Hard this session and must be re-shown
+    /// before any other due card, because MIN_INTERVAL=1 means they are
+    /// scheduled for tomorrow in the DB (not today).
+    pub relapse_queue: Vec<CardHash>,
 }
 
-#[derive(Clone)]
-pub struct Review {
-    pub card: Card,
-    pub reviewed_at: Timestamp,
-    pub grade: Grade,
-    pub stability: Stability,
-    pub difficulty: Difficulty,
-    pub interval_raw: f64,
-    pub interval_days: i64,
-    pub due_date: Date,
-}
+impl AppState {
+    /// Build the live queue of due cards according to the configured filters.
+    /// Relapsed cards (Forgot/Hard) are prepended from `session_state`.
+    /// Caller holds no locks; this acquires read on cards and lock on db.
+    pub fn compute_due_queue(&self, today: Date) -> Fallible<Vec<Card>> {
+        let index = self.cards.read().unwrap();
+        let all_cards = index.cards.clone();
+        drop(index);
 
-impl Review {
-    pub fn should_repeat(&self) -> bool {
-        self.grade == Grade::Forgot || self.grade == Grade::Hard
-    }
+        let db = self.db.lock().unwrap();
+        let due_today: HashSet<CardHash> = db.due_today(today)?;
+        drop(db);
 
-    pub fn into_record(self) -> ReviewRecord {
-        ReviewRecord {
-            card_hash: self.card.hash(),
-            reviewed_at: self.reviewed_at,
-            grade: self.grade,
-            stability: self.stability,
-            difficulty: self.difficulty,
-            interval_raw: self.interval_raw,
-            interval_days: self.interval_days,
-            due_date: self.due_date,
+        let due_today: Vec<Card> = all_cards
+            .iter()
+            .filter(|c| due_today.contains(&c.hash()))
+            .cloned()
+            .collect();
+
+        let db = self.db.lock().unwrap();
+        let mut due_today = filter_deck(
+            &db,
+            due_today,
+            self.filters.card_limit,
+            self.filters.new_card_limit,
+            self.filters.deck_filter.clone(),
+        )?;
+        drop(db);
+
+        if self.filters.bury_siblings {
+            due_today = bury_siblings(due_today);
         }
+
+        if self.filters.shuffle {
+            let seed = SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap()
+                .as_nanos() as u64;
+            let mut rng = TinyRng::from_seed(seed);
+            due_today = shuffle(due_today, &mut rng);
+        }
+
+        // Prepend relapsed cards (Forgot/Hard rated this session).
+        let session = self.session_state.lock().unwrap();
+        if !session.relapse_queue.is_empty() {
+            let index = self.cards.read().unwrap();
+            let all_cards = index.cards.clone();
+            drop(index);
+
+            // Build relapse cards in order, deduplicating against due_today.
+            let due_hashes: HashSet<CardHash> = due_today.iter().map(|c| c.hash()).collect();
+            let mut relapse_cards: Vec<Card> = session
+                .relapse_queue
+                .iter()
+                .filter_map(|hash| {
+                    if due_hashes.contains(hash) {
+                        None // already in queue
+                    } else {
+                        all_cards.iter().find(|c| &c.hash() == hash).cloned()
+                    }
+                })
+                .collect();
+            relapse_cards.extend(due_today);
+            return Ok(relapse_cards);
+        }
+        drop(session);
+
+        Ok(due_today)
     }
 }
