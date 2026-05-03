@@ -277,6 +277,13 @@ impl Database {
         Ok(count > 0)
     }
 
+    /// Total number of review records in the database.
+    pub fn total_reviews(&self) -> Fallible<u64> {
+        let sql = "select count(*) from reviews;";
+        let count: i64 = self.conn.query_row(sql, [], |row| row.get(0))?;
+        Ok(count as u64)
+    }
+
     /// Count the number of reviews performed in the given date.
     pub fn count_reviews_in_date(&self, date: Date) -> Fallible<usize> {
         let sql = "select count(*) from reviews where substr(reviewed_at, 1, 10) = ?;";
@@ -499,6 +506,29 @@ mod tests {
             err.to_string(),
             format!("error: No performance data found for card with hash {card_hash}")
         );
+        Ok(())
+    }
+
+    #[test]
+    fn test_total_reviews() -> Fallible<()> {
+        let mut db = Database::new(":memory:")?;
+        let card_hash = CardHash::hash_bytes(b"a");
+        let now = Timestamp::now();
+        db.insert_card(card_hash, now)?;
+        assert_eq!(db.total_reviews()?, 0);
+
+        let review = ReviewRecord {
+            card_hash,
+            reviewed_at: now,
+            grade: Grade::Good,
+            stability: 2.0,
+            difficulty: 2.0,
+            interval_raw: 1.0,
+            interval_days: 1,
+            due_date: now.date(),
+        };
+        db.save_session(now, now, vec![review])?;
+        assert_eq!(db.total_reviews()?, 1);
         Ok(())
     }
 }
