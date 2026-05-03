@@ -112,6 +112,83 @@ pub fn update_performance(
     }
 }
 
+/// Card maturity bucket for stats.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum Maturity {
+    New,
+    Learning,
+    Young,
+    Mature,
+}
+
+impl Maturity {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Maturity::New => "New",
+            Maturity::Learning => "Learning",
+            Maturity::Young => "Young",
+            Maturity::Mature => "Mature",
+        }
+    }
+}
+
+impl Performance {
+    pub fn maturity(&self) -> Maturity {
+        match self {
+            Performance::New => Maturity::New,
+            Performance::Reviewed(rp) => {
+                if rp.interval_days < 7 {
+                    Maturity::Learning
+                } else if rp.interval_days < 30 {
+                    Maturity::Young
+                } else {
+                    Maturity::Mature
+                }
+            }
+        }
+    }
+}
+
+#[cfg(test)]
+mod maturity_tests {
+    use super::*;
+
+    fn perf(interval_days: i64) -> Performance {
+        Performance::Reviewed(ReviewedPerformance {
+            last_reviewed_at: Timestamp::now(),
+            stability: 1.0,
+            difficulty: 1.0,
+            interval_raw: interval_days as f64,
+            interval_days,
+            due_date: Date::today(),
+            review_count: 1,
+        })
+    }
+
+    #[test]
+    fn test_maturity_new() {
+        assert_eq!(Performance::New.maturity(), Maturity::New);
+    }
+
+    #[test]
+    fn test_maturity_learning() {
+        assert_eq!(perf(0).maturity(), Maturity::Learning);
+        assert_eq!(perf(6).maturity(), Maturity::Learning);
+    }
+
+    #[test]
+    fn test_maturity_young() {
+        assert_eq!(perf(7).maturity(), Maturity::Young);
+        assert_eq!(perf(29).maturity(), Maturity::Young);
+    }
+
+    #[test]
+    fn test_maturity_mature() {
+        assert_eq!(perf(30).maturity(), Maturity::Mature);
+        assert_eq!(perf(365).maturity(), Maturity::Mature);
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
