@@ -300,7 +300,7 @@ impl Database {
     ) -> Fallible<Vec<(Date, u32)>> {
         let sql = "select substr(reviewed_at, 1, 10) as d, count(*) \
                    from reviews \
-                   where d >= ? and d <= ? \
+                   where substr(reviewed_at, 1, 10) >= ? and substr(reviewed_at, 1, 10) <= ? \
                    group by d \
                    order by d;";
         let mut stmt = self.conn.prepare(sql)?;
