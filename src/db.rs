@@ -391,6 +391,93 @@ impl Database {
         Ok(streak)
     }
 
+    /// Create an empty session and return its ID. ended_at is initialized
+    /// to started_at; serve mode does not currently update it after creation.
+    pub fn create_session(&mut self, started_at: Timestamp) -> Fallible<i64> {
+        let sql = "insert into sessions (started_at, ended_at) values (?, ?) returning session_id;";
+        let session_id: i64 = self.conn.query_row(
+            sql,
+            params![started_at, started_at],
+            |row| row.get(0),
+        )?;
+        Ok(session_id)
+    }
+
+    /// Append a single review to an existing session.
+    pub fn save_review(&self, session_id: i64, review: &ReviewRecord) -> Fallible<()> {
+        let sql = "insert into reviews (session_id, card_hash, reviewed_at, grade, stability, difficulty, interval_raw, interval_days, due_date) values (?, ?, ?, ?, ?, ?, ?, ?, ?);";
+        self.conn.execute(
+            sql,
+            params![
+                session_id,
+                review.card_hash,
+                review.reviewed_at,
+                review.grade,
+                review.stability,
+                review.difficulty,
+                review.interval_raw,
+                review.interval_days as i32,
+                review.due_date
+            ],
+        )?;
+        Ok(())
+    }
+
+    /// Insert a review and update the card performance in a single transaction.
+    /// Used by serve mode for per-rating persistence.
+    pub fn record_rating(
+        &mut self,
+        session_id: i64,
+        review: &ReviewRecord,
+        new_performance: Performance,
+    ) -> Fallible<()> {
+        let tx = self.conn.transaction()?;
+        let sql = "insert into reviews (session_id, card_hash, reviewed_at, grade, stability, difficulty, interval_raw, interval_days, due_date) values (?, ?, ?, ?, ?, ?, ?, ?, ?);";
+        tx.execute(
+            sql,
+            params![
+                session_id,
+                review.card_hash,
+                review.reviewed_at,
+                review.grade,
+                review.stability,
+                review.difficulty,
+                review.interval_raw,
+                review.interval_days as i32,
+                review.due_date
+            ],
+        )?;
+        let (last_reviewed_at, stability, difficulty, interval_raw, interval_days, due_date, review_count) =
+            match new_performance {
+                Performance::New => (None, None, None, None, None::<i32>, None, 0i32),
+                Performance::Reviewed(rp) => (
+                    Some(rp.last_reviewed_at),
+                    Some(rp.stability),
+                    Some(rp.difficulty),
+                    Some(rp.interval_raw),
+                    Some(rp.interval_days as i32),
+                    Some(rp.due_date),
+                    rp.review_count as i32,
+                ),
+            };
+        let sql = "update cards set last_reviewed_at = ?, stability = ?, difficulty = ?, interval_raw = ?, interval_days = ?, due_date = ?, review_count = ? where card_hash = ?;";
+        tx.execute(
+            sql,
+            params![
+                last_reviewed_at,
+                stability,
+                difficulty,
+                interval_raw,
+                interval_days,
+                due_date,
+                review_count,
+                review.card_hash
+            ],
+        )?;
+        tx.commit()?;
+        Ok(())
+    }
+
     /// Get the list of all sessions in the database.
     pub fn get_all_sessions(&self) -> Fallible<Vec<SessionRow>> {
         let sql = "select session_id, started_at, ended_at from sessions order by started_at;";
@@ -775,6 +862,48 @@ mod tests {
         };
         db.save_session(ts, ts, vec![review])?;
         assert_eq!(db.current_streak(today)?, 1);
+        Ok(())
+    }
+
+    #[test]
+    fn test_save_review_appends_to_session() -> Fallible<()> {
+        let mut db = Database::new(":memory:")?;
+        let now = Timestamp::now();
+        let card_hash = CardHash::hash_bytes(b"a");
+        db.insert_card(card_hash, now)?;
+        let session_id = db.create_session(now)?;
+        let review = ReviewRecord {
+            card_hash, reviewed_at: now, grade: Grade::Good,
+            stability: 2.0, difficulty: 2.0, interval_raw: 1.0, interval_days: 1,
+            due_date: now.date(),
+        };
+        db.save_review(session_id, &review)?;
+        let reviews = db.get_reviews_for_session(session_id)?;
+        assert_eq!(reviews.len(), 1);
+        Ok(())
+    }
+
+    #[test]
+    fn test_record_rating_single_transaction() -> Fallible<()> {
+        let mut db = Database::new(":memory:")?;
+        let now = Timestamp::now();
+        let card_hash = CardHash::hash_bytes(b"a");
+        db.insert_card(card_hash, now)?;
+        let session_id = db.create_session(now)?;
+        let review = ReviewRecord {
+            card_hash, reviewed_at: now, grade: Grade::Good,
+            stability: 2.0, difficulty: 2.0, interval_raw: 1.0, interval_days: 5,
+            due_date: now.date(),
+        };
+        let perf = Performance::Reviewed(ReviewedPerformance {
+            last_reviewed_at: now,
+            stability: 2.0, difficulty: 2.0, interval_raw: 1.0, interval_days: 5,
+            due_date: now.date(), review_count: 1,
+        });
+        db.record_rating(session_id, &review, perf)?;
+        assert_eq!(db.total_reviews()?, 1);
+        let fetched = db.get_card_performance(card_hash)?;
+        assert_eq!(fetched, perf);
         Ok(())
     }
 
