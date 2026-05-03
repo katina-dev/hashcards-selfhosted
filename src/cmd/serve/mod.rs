@@ -19,7 +19,7 @@ mod katex;
 mod post;
 pub mod server;
 mod state;
-mod template;
+pub mod template;
 mod watcher;
 
 #[cfg(test)]
