@@ -31,6 +31,7 @@ use crate::cmd::serve::state::CardIndex;
 use crate::collection::Collection;
 use crate::db::Database;
 use crate::error::Fallible;
+use crate::error::fail;
 use crate::types::timestamp::Timestamp;
 
 const DEBOUNCE: Duration = Duration::from_millis(400);
@@ -48,6 +49,10 @@ pub fn spawn_watcher(
     rescan_interval: Option<Duration>,
     enable_watch: bool,
 ) -> Fallible<()> {
+    if !enable_watch && rescan_interval.is_none() {
+        return Ok(());
+    }
+
     let (tx, mut rx) = mpsc::channel::<()>(16);
 
     if enable_watch {
@@ -63,16 +68,18 @@ pub fn spawn_watcher(
             Config::default(),
         ) {
             Ok(w) => w,
-            Err(e) => {
-                if rescan_interval.is_none() {
-                    return Err(crate::error::ErrorReport::new(format!(
+            Err(e) => match rescan_interval {
+                None => {
+                    return fail(format!(
                         "failed to set up file watcher: {e}. Use --rescan-interval to enable polling, or --no-watch to disable."
-                    )));
+                    ));
                 }
-                log::warn!("file watcher unavailable ({e}); falling back to polling.");
-                spawn_poll_only(directory, cards, db, rescan_interval.unwrap());
-                return Ok(());
-            }
+                Some(every) => {
+                    log::warn!("file watcher unavailable ({e}); falling back to polling.");
+                    spawn_poll_only(directory, cards, db, every);
+                    return Ok(());
+                }
+            },
         };
         watcher.watch(&directory, RecursiveMode::Recursive)
             .map_err(|e| crate::error::ErrorReport::new(format!("watch failed: {e}")))?;
@@ -186,7 +193,7 @@ mod tests {
 
         for _ in 0..40 {
             tokio::time::sleep(Duration::from_millis(50)).await;
-            if cards.read().unwrap().cards.len() > 0 {
+            if !cards.read().unwrap().cards.is_empty() {
                 return Ok(());
             }
         }

@@ -50,6 +50,7 @@ use crate::cmd::serve::state::SessionState;
 use crate::collection::Collection;
 use crate::db::Database;
 use crate::error::Fallible;
+use crate::error::fail;
 use crate::media::load::MediaLoader;
 use crate::types::card::Card;
 use crate::types::card_hash::CardHash;
@@ -354,9 +355,7 @@ fn parse_duration(s: &str) -> Fallible<std::time::Duration> {
         "" | "s" => n,
         "m" => n * 60,
         "h" => n * 3600,
-        other => return Err(crate::error::ErrorReport::new(format!(
-            "invalid duration unit: {other}"
-        ))),
+        other => return fail(format!("invalid duration unit: {other}")),
     };
     Ok(std::time::Duration::from_secs(secs))
 }

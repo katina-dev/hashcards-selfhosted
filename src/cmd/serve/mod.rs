@@ -18,7 +18,7 @@ mod post;
 pub mod server;
 mod state;
 mod template;
-pub mod watcher;
+mod watcher;
 
 #[cfg(test)]
 mod tests {
