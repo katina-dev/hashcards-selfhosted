@@ -43,13 +43,22 @@ pub async fn get_handler(State(state): State<ServerState>) -> (StatusCode, Html<
 
 async fn inner(state: ServerState) -> Fallible<Markup> {
     let mutable = state.mutable.lock().unwrap();
-    let body = if mutable.finished_at.is_some() {
-        render_completion_page(&state, &mutable)?
+    let body = if mutable.cards.is_empty() {
+        render_caught_up()
     } else {
         render_session_page(&state, &mutable)?
     };
     let html = page_template(body);
     Ok(html)
+}
+
+fn render_caught_up() -> Markup {
+    html! {
+        div.caught-up {
+            h1 { "You're caught up." }
+            p { a href="/" { "← Dashboard" } }
+        }
+    }
 }
 
 fn render_session_page(state: &ServerState, mutable: &MutableState) -> Fallible<Markup> {
@@ -89,8 +98,6 @@ fn render_session_page(state: &ServerState, mutable: &MutableState) -> Fallible<
                 div.grades {
                     (grades)
                 }
-                div.spacer {}
-                (end_button())
             }
         }
     } else {
@@ -99,8 +106,6 @@ fn render_session_page(state: &ServerState, mutable: &MutableState) -> Fallible<
                 (undo_button(undo_disabled))
                 div.spacer {}
                 input id="reveal" type="submit" name="action" value="Reveal" title="Show the answer. Shortcut: space.";
-                div.spacer {}
-                (end_button())
             }
         }
     };
@@ -173,77 +178,6 @@ fn render_card(card: &Card, reveal: bool, config: &MarkdownRenderConfig) -> Fall
     })
 }
 
-const TS_FORMAT: &str = "%Y-%m-%d %H:%M:%S";
-
-fn render_completion_page(state: &ServerState, mutable: &MutableState) -> Fallible<Markup> {
-    let total_cards = state.total_cards;
-    let cards_reviewed = state.total_cards - mutable.cards.len();
-    let start = state.session_started_at.into_inner();
-    let end = mutable.finished_at.unwrap().into_inner();
-    let duration_s = (end - start).num_seconds();
-    let pace: f64 = if cards_reviewed == 0 {
-        0.0
-    } else {
-        duration_s as f64 / cards_reviewed as f64
-    };
-    let pace = format!("{:.2}", pace);
-    let start_ts = start.format(TS_FORMAT).to_string();
-    let end_ts = end.format(TS_FORMAT).to_string();
-    let html = html! {
-        div.finished {
-            h1 {
-                "Session Completed 🎉"
-            }
-            div.summary {
-                "Reviewed "
-                (cards_reviewed)
-                " cards in "
-                (duration_s)
-                " seconds."
-            }
-            h2 {
-                "Session Stats"
-            }
-            div.stats {
-                table {
-                    tbody {
-                        tr {
-                            td .key { "Total Cards" }
-                            td .val { (total_cards) }
-                        }
-                        tr {
-                            td .key { "Cards Reviewed" }
-                            td .val { (cards_reviewed) }
-                        }
-                        tr {
-                            td .key { "Started" }
-                            td .val { (start_ts) }
-                        }
-                        tr {
-                            td .key { "Finished" }
-                            td .val { (end_ts) }
-                        }
-                        tr {
-                            td .key { "Duration (seconds)" }
-                            td .val { (duration_s) }
-                        }
-                        tr {
-                            td .key { "Pace (s/card)" }
-                            td .val { (pace) }
-                        }
-                    }
-                }
-            }
-            div.shutdown-container {
-                form action="/" method="post" {
-                    input #shutdown .shutdown-button type="submit" name="action" value="Shutdown" title="Shut down the server";
-                }
-            }
-        }
-    };
-    Ok(html)
-}
-
 fn undo_button(disabled: bool) -> Markup {
     if disabled {
         html! {
@@ -256,8 +190,3 @@ fn undo_button(disabled: bool) -> Markup {
     }
 }
 
-fn end_button() -> Markup {
-    html! {
-        input id="end" type="submit" name="action" value="End" title="End the session (changes are saved)";
-    }
-}

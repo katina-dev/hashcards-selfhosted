@@ -34,9 +34,6 @@ use axum::routing::post;
 use clap::ValueEnum;
 use tokio::net::TcpListener;
 use tokio::select;
-use tokio::signal;
-use tokio::sync::oneshot::Receiver;
-use tokio::sync::oneshot::channel;
 
 use crate::cmd::serve::cache::Cache;
 use crate::cmd::serve::get::get_handler;
@@ -53,7 +50,6 @@ use crate::cmd::serve::state::ServerState;
 use crate::collection::Collection;
 use crate::db::Database;
 use crate::error::Fallible;
-use crate::error::fail;
 use crate::media::load::MediaLoader;
 use crate::rng::TinyRng;
 use crate::rng::shuffle;
@@ -159,9 +155,6 @@ pub async fn start_server(config: ServerConfig) -> Fallible<()> {
         cache.insert(card.hash(), performance)?;
     }
 
-    // Create shutdown channel
-    let (shutdown_tx, shutdown_rx) = channel();
-
     let state = ServerState {
         port: config.port,
         directory,
@@ -174,9 +167,7 @@ pub async fn start_server(config: ServerConfig) -> Fallible<()> {
             cache,
             cards: due_today,
             reviews: Vec::new(),
-            finished_at: None,
         })),
-        shutdown_tx: Arc::new(Mutex::new(Some(shutdown_tx))),
         answer_controls: config.answer_controls,
     };
     let app = Router::new();
@@ -194,22 +185,14 @@ pub async fn start_server(config: ServerConfig) -> Fallible<()> {
     let app = app.with_state(state.clone());
     let bind = format!("{}:{}", config.host, config.port);
 
-    // Start the server with graceful shutdown on Ctrl+C or shutdown button.
+    // Start the server with graceful shutdown on Ctrl+C or SIGTERM.
     log::debug!("Starting server on {bind}");
     let listener = TcpListener::bind(bind).await?;
     axum::serve(listener, app)
-        .with_graceful_shutdown(shutdown_signal(shutdown_rx))
+        .with_graceful_shutdown(shutdown_signal())
         .await?;
 
-    // Check if session was complete when server shut down
-    let mutable = state.mutable.lock().unwrap();
-    if mutable.finished_at.is_some() {
-        // Session was complete, exit with code 0
-        Ok(())
-    } else {
-        // Session was not complete, exit with error code
-        fail("Session interrupted before completion")
-    }
+    Ok(())
 }
 
 async fn script_handler(
@@ -304,24 +287,30 @@ async fn file_handler(
     }
 }
 
-async fn shutdown_signal(shutdown_rx: Receiver<()>) {
+async fn shutdown_signal() {
+    use tokio::signal::unix::SignalKind;
+    use tokio::signal::unix::signal;
+
     let ctrl_c = async {
-        signal::ctrl_c()
+        tokio::signal::ctrl_c()
             .await
             .expect("failed to install Ctrl+C handler");
     };
 
-    let shutdown = async {
-        shutdown_rx.await.ok();
+    #[cfg(unix)]
+    let term = async {
+        signal(SignalKind::terminate())
+            .expect("failed to install SIGTERM handler")
+            .recv()
+            .await;
     };
 
+    #[cfg(not(unix))]
+    let term = std::future::pending::<()>();
+
     select! {
-        _ = ctrl_c => {
-            log::debug!("Received Ctrl+C, shutting down gracefully");
-        },
-        _ = shutdown => {
-            log::debug!("Received shutdown signal, shutting down gracefully");
-        },
+        _ = ctrl_c => log::info!("Received Ctrl+C, shutting down"),
+        _ = term => log::info!("Received SIGTERM, shutting down"),
     }
 }
 

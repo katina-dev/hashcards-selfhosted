@@ -17,10 +17,8 @@ use axum::extract::State;
 use axum::response::Redirect;
 use serde::Deserialize;
 
-use crate::cmd::serve::state::MutableState;
 use crate::cmd::serve::state::Review;
 use crate::cmd::serve::state::ServerState;
-use crate::db::ReviewRecord;
 use crate::error::Fallible;
 use crate::fsrs::Grade;
 use crate::types::card::Card;
@@ -34,12 +32,10 @@ use crate::types::timestamp::Timestamp;
 enum Action {
     Reveal,
     Undo,
-    End,
     Forgot,
     Hard,
     Good,
     Easy,
-    Shutdown,
 }
 
 impl Action {
@@ -49,7 +45,7 @@ impl Action {
             Action::Hard => Grade::Hard,
             Action::Good => Grade::Good,
             Action::Easy => Grade::Easy,
-            _ => panic!("Action does not correspond to a grade"),
+            Action::Reveal | Action::Undo => panic!("Action does not correspond to a grade"),
         }
     }
 }
@@ -94,25 +90,7 @@ async fn action_handler(state: ServerState, action: Action) -> Fallible<()> {
                 // if it exists.
                 let performance = mutable.db.get_card_performance(hash)?;
                 mutable.cache.update(hash, performance)?;
-                mutable.finished_at = None;
                 mutable.reveal = false;
-            }
-        }
-        Action::End => {
-            finish_session(&mut mutable, &state)?;
-        }
-        Action::Shutdown => {
-            // Only allow shutdown if session is finished
-            if mutable.finished_at.is_some() {
-                // Release the lock before sending shutdown signal.
-                drop(mutable);
-                let mut shutdown_tx = state.shutdown_tx.lock().unwrap();
-                // Since this is a one-shot channel, `send()` linearly consumes
-                // `tx`. Therefore we have to mutate the cell and put a `None`
-                // in its place using the `take()` method.
-                if let Some(tx) = shutdown_tx.take() {
-                    let _ = tx.send(());
-                }
             }
         }
         Action::Forgot | Action::Hard | Action::Good | Action::Easy => {
@@ -143,30 +121,8 @@ async fn action_handler(state: ServerState, action: Action) -> Fallible<()> {
                 }
                 mutable.reviews.push(review);
                 mutable.reveal = false;
-
-                // Was this the last card?
-                if mutable.cards.is_empty() {
-                    finish_session(&mut mutable, &state)?;
-                }
             }
         }
-    }
-    Ok(())
-}
-
-fn finish_session(mutable: &mut MutableState, state: &ServerState) -> Fallible<()> {
-    log::debug!("Session completed");
-    let session_ended_at = Timestamp::now();
-    let reviews: Vec<Review> = mutable.reviews.clone();
-    let reviews: Vec<ReviewRecord> = reviews.into_iter().map(Review::into_record).collect();
-    mutable
-        .db
-        .save_session(state.session_started_at, session_ended_at, reviews)?;
-    mutable.finished_at = Some(session_ended_at);
-    for (card_hash, performance) in mutable.cache.iter() {
-        mutable
-            .db
-            .update_card_performance(*card_hash, *performance)?;
     }
     Ok(())
 }

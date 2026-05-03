@@ -180,7 +180,7 @@ mod tests {
         let html = response.text().await?;
         assert!(html.contains("BAR"));
 
-        // Hit 'Good'.
+        // After rating the final card, we should see the caught-up screen.
         let response = reqwest::Client::new()
             .post(format!("http://{TEST_HOST}:{port}/"))
             .form(&[("action", "Good")])
@@ -188,7 +188,7 @@ mod tests {
             .await?;
         assert!(response.status().is_success());
         let html = response.text().await?;
-        assert!(html.contains("Session Completed"));
+        assert!(html.contains("You're caught up."));
 
         Ok(())
     }
@@ -361,38 +361,4 @@ mod tests {
         Ok(())
     }
 
-    #[tokio::test]
-    async fn test_end() -> Fallible<()> {
-        let port = pick_unused_port().unwrap();
-        let directory = create_tmp_copy_of_test_directory()?;
-        let session_started_at = Timestamp::now();
-        let config = ServerConfig {
-            directory: Some(directory),
-            host: TEST_HOST.to_string(),
-            port,
-            session_started_at,
-            card_limit: None,
-            new_card_limit: None,
-            deck_filter: None,
-            shuffle: false,
-            answer_controls: AnswerControls::Full,
-            bury_siblings: false,
-            rescan_interval: None,
-            no_watch: false,
-        };
-        spawn(async move { start_server(config).await });
-        wait_for_server(TEST_HOST, port).await?;
-
-        // Hit end.
-        let response = reqwest::Client::new()
-            .post(format!("http://{TEST_HOST}:{port}/"))
-            .form(&[("action", "End")])
-            .send()
-            .await?;
-        assert!(response.status().is_success());
-        let html = response.text().await?;
-        assert!(html.contains("Session Completed"));
-
-        Ok(())
-    }
 }
