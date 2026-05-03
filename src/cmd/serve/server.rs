@@ -127,6 +127,18 @@ pub async fn start_server(config: ServerConfig) -> Fallible<()> {
         })),
     };
 
+    let rescan_interval = match config.rescan_interval.as_deref() {
+        Some(s) => Some(parse_duration(s)?),
+        None => None,
+    };
+    crate::cmd::serve::watcher::spawn_watcher(
+        state.directory.clone(),
+        state.cards.clone(),
+        state.db.clone(),
+        rescan_interval,
+        !config.no_watch,
+    )?;
+
     let app = Router::new()
         .route("/", get(get_handler))
         .route("/", post(post_handler))
@@ -327,4 +339,24 @@ pub fn bury_siblings(deck: Vec<Card>) -> Vec<Card> {
         result.push(card);
     }
     result
+}
+
+fn parse_duration(s: &str) -> Fallible<std::time::Duration> {
+    let s = s.trim();
+    let (num_part, unit) = s
+        .find(|c: char| c.is_alphabetic())
+        .map(|i| (&s[..i], &s[i..]))
+        .unwrap_or((s, "s"));
+    let n: u64 = num_part.parse().map_err(|_| {
+        crate::error::ErrorReport::new(format!("invalid duration: {s}"))
+    })?;
+    let secs = match unit {
+        "" | "s" => n,
+        "m" => n * 60,
+        "h" => n * 3600,
+        other => return Err(crate::error::ErrorReport::new(format!(
+            "invalid duration unit: {other}"
+        ))),
+    };
+    Ok(std::time::Duration::from_secs(secs))
 }
