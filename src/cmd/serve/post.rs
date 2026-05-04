@@ -12,6 +12,9 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use std::fs::OpenOptions;
+use std::io::Write;
+
 use axum::Form;
 use axum::extract::State;
 use axum::response::Redirect;
@@ -21,10 +24,16 @@ use crate::cmd::serve::state::AppState;
 use crate::db::ReviewRecord;
 use crate::error::Fallible;
 use crate::fsrs::Grade;
+use crate::types::card::CardContent;
+use crate::types::card_hash::CardHash;
 use crate::types::performance::Performance;
 use crate::types::performance::ReviewedPerformance;
 use crate::types::performance::update_performance;
 use crate::types::timestamp::Timestamp;
+
+/// Filename for the human-readable log of rejected cards. Written next
+/// to `hashcards.db` in the collection directory.
+const REJECTED_LOG_FILENAME: &str = "rejected.log";
 
 #[derive(Debug, Deserialize)]
 enum Action {
@@ -76,9 +85,16 @@ async fn action_handler(state: AppState, action: Action) -> Fallible<()> {
                 Some(h) => h,
                 None => return Ok(()),
             };
+            let now = Timestamp::now();
             {
                 let db = state.db.lock().unwrap();
-                db.reject_card(hash, Timestamp::now())?;
+                db.reject_card(hash, now)?;
+            }
+            // Best-effort: log the rejection to a plain-text file so the
+            // user can find and edit the offending card offline. A failure
+            // here doesn't unwind the DB-side rejection.
+            if let Err(e) = append_rejection_log(&state, hash, now) {
+                log::warn!("could not append to {REJECTED_LOG_FILENAME}: {e}");
             }
             let mut session = state.session_state.lock().unwrap();
             session.relapse_queue.retain(|h| h != &hash);
@@ -143,6 +159,52 @@ async fn action_handler(state: AppState, action: Action) -> Fallible<()> {
             session.current_card = None;
         }
     }
+    Ok(())
+}
+
+/// Append a single line to `<cards_dir>/rejected.log` describing the
+/// just-rejected card: when, which file, which line, and a preview of
+/// the question. The line numbers are 1-indexed so they paste straight
+/// into editors.
+fn append_rejection_log(state: &AppState, hash: CardHash, rejected_at: Timestamp) -> Fallible<()> {
+    let card = {
+        let cards = state.cards.read().unwrap();
+        match cards.cards.iter().find(|c| c.hash() == hash) {
+            Some(c) => c.clone(),
+            None => return Ok(()), // already removed by the file watcher
+        }
+    };
+
+    let rel = card
+        .relative_file_path(&state.directory)
+        .unwrap_or_else(|_| card.file_path().clone());
+    let (start, _end) = card.range();
+    let preview_src = match card.content() {
+        CardContent::Basic { question, .. } => question.as_str(),
+        CardContent::Cloze { text, .. } => text.as_str(),
+    };
+    let preview: String = preview_src
+        .lines()
+        .next()
+        .unwrap_or("")
+        .chars()
+        .take(120)
+        .collect();
+
+    let line = format!(
+        "{}  {}:{}  {}\n",
+        rejected_at.into_inner().format("%Y-%m-%d %H:%M"),
+        rel.display(),
+        start + 1,
+        preview
+    );
+
+    let log_path = state.directory.join(REJECTED_LOG_FILENAME);
+    let mut f = OpenOptions::new()
+        .append(true)
+        .create(true)
+        .open(&log_path)?;
+    f.write_all(line.as_bytes())?;
     Ok(())
 }
 

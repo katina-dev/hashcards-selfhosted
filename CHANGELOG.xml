@@ -42,11 +42,15 @@
             <change author="Katina Thongvong">
                 Add a "Reject" button to the drill UI (keyboard shortcut
                 `r`) that flags the current card as low quality and
-                permanently removes it from the review queue. Editing
-                the markdown changes the card's hash, which un-rejects
-                it. To force-undo a rejection without editing, run
-                `delete from rejected_cards where card_hash = '...'`
-                against `hashcards.db`.
+                permanently removes it from the review queue. Each
+                rejection also appends a one-line entry to
+                `&lt;cards_dir&gt;/rejected.log` containing the file
+                path, the (1-indexed) line number, and a preview of
+                the question — so you can find and edit the offending
+                card offline. Editing the markdown changes the card's
+                hash, which un-rejects it. To force-undo a rejection
+                without editing, run `delete from rejected_cards where
+                card_hash = '...'` against `hashcards.db`.
             </change>
         </added>
         <changed>

@@ -387,6 +387,24 @@ A: CHARLIE-A
             html.contains("You're caught up."),
             "after rejecting every card the queue should be empty"
         );
+
+        // rejected.log should exist next to hashcards.db with one line per
+        // rejection — file path, 1-indexed line number, and a preview of the
+        // question text.
+        let log = std::fs::read_to_string(dir.join("rejected.log"))?;
+        let lines: Vec<&str> = log.lines().collect();
+        assert_eq!(lines.len(), 3, "one log entry per reject");
+        for (i, q) in fronts.iter().enumerate() {
+            assert!(
+                log.contains(q),
+                "rejection log should mention question {q}"
+            );
+            assert!(
+                lines[i].contains("Deck.md:"),
+                "log line should reference Deck.md with a line number, got: {}",
+                lines[i]
+            );
+        }
         Ok(())
     }
 
