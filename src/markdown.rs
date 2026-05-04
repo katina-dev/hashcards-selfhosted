@@ -76,6 +76,10 @@ pub fn markdown_to_html(config: &MarkdownRenderConfig, markdown: &str) -> Fallib
                 };
                 Ok(ev)
             }
+            // Treat single newlines as hard breaks. Standard CommonMark
+            // collapses a soft break to a space, but flashcards are short
+            // and authors expect line-for-line layout.
+            Event::SoftBreak => Ok(Event::HardBreak),
             _ => Ok(event),
         })
         .collect::<Fallible<Vec<_>>>()?;
@@ -149,6 +153,15 @@ mod tests {
         let config = make_test_config()?;
         let html = markdown_to_html_inline(&config, markdown)?;
         assert_eq!(html, "This is <strong>bold</strong> text.");
+        Ok(())
+    }
+
+    #[test]
+    fn test_soft_break_renders_as_hard_break() -> Fallible<()> {
+        let markdown = "line one\nline two";
+        let config = make_test_config()?;
+        let html = markdown_to_html(&config, markdown)?;
+        assert_eq!(html, "<p>line one<br />\nline two</p>\n");
         Ok(())
     }
 

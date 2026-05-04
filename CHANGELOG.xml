@@ -63,6 +63,12 @@
             <change author="eudoxia0">
                 Upgrade KaTeX to `0.16.45`.
             </change>
+            <change author="Katina Thongvong">
+                Single newlines inside a card now render as line breaks
+                instead of being collapsed to a space. Authors can write
+                short lists of facts line-by-line without inserting blank
+                lines or two-space hard-break markers.
+            </change>
         </changed>
         <removed>
             <change author="Katina Thongvong">
