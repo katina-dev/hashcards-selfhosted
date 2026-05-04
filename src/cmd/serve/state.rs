@@ -46,7 +46,6 @@ pub struct ServeFilters {
 
 #[derive(Clone)]
 pub struct SessionState {
-    pub reveal: bool,
     /// Cards that were rated Forgot/Hard this session and must be re-shown
     /// before any other due card, because MIN_INTERVAL=1 means they are
     /// scheduled for tomorrow in the DB (not today).

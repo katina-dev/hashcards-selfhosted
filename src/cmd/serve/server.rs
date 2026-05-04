@@ -127,7 +127,6 @@ pub async fn start_server(config: ServerConfig) -> Fallible<()> {
         cards: Arc::new(RwLock::new(card_index)),
         db: Arc::new(Mutex::new(db)),
         session_state: Arc::new(Mutex::new(SessionState {
-            reveal: false,
             relapse_queue: Vec::new(),
             current_card: None,
         })),

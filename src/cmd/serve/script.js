@@ -37,7 +37,31 @@ document.addEventListener("DOMContentLoaded", function () {
   if (cardContent) {
     cardContent.style.opacity = "1";
   }
+
+  const reveal = document.getElementById("reveal");
+  if (reveal) {
+    reveal.addEventListener("click", revealAnswer);
+  }
 });
+
+function revealAnswer() {
+  // Show the answer (basic) or swap front->back (cloze).
+  document.querySelectorAll("#answer-body, #prompt-back").forEach(function (el) {
+    el.classList.remove("is-hidden");
+  });
+  document.querySelectorAll("#prompt-front").forEach(function (el) {
+    el.classList.add("is-hidden");
+  });
+  // Hide the Reveal button, enable and show the grade buttons.
+  const reveal = document.getElementById("reveal");
+  if (reveal) reveal.classList.add("is-hidden");
+  document.querySelectorAll(".grades").forEach(function (el) {
+    el.classList.remove("is-hidden");
+  });
+  document.querySelectorAll(".grades input").forEach(function (el) {
+    el.disabled = false;
+  });
+}
 
 document.addEventListener("keydown", function (event) {
   // Skip during text input.
@@ -62,7 +86,8 @@ document.addEventListener("keydown", function (event) {
     event.preventDefault();
     const id = keybindings[event.key];
     const node = document.getElementById(id);
-    if (node) {
+    // Skip hidden or disabled controls (e.g. grade keys before Reveal).
+    if (node && !node.disabled && !node.classList.contains("is-hidden")) {
       node.click();
     }
   }

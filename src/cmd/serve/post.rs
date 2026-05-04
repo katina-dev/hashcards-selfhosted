@@ -21,7 +21,6 @@ use crate::cmd::serve::state::AppState;
 use crate::db::ReviewRecord;
 use crate::error::Fallible;
 use crate::fsrs::Grade;
-use crate::types::card::Card;
 use crate::types::performance::Performance;
 use crate::types::performance::ReviewedPerformance;
 use crate::types::performance::update_performance;
@@ -29,7 +28,6 @@ use crate::types::timestamp::Timestamp;
 
 #[derive(Debug, Deserialize)]
 enum Action {
-    Reveal,
     Undo,
     Forgot,
     Hard,
@@ -44,7 +42,7 @@ impl Action {
             Action::Hard => Grade::Hard,
             Action::Good => Grade::Good,
             Action::Easy => Grade::Easy,
-            Action::Reveal | Action::Undo => panic!("Action does not correspond to a grade"),
+            Action::Undo => panic!("Action does not correspond to a grade"),
         }
     }
 }
@@ -66,50 +64,34 @@ pub async fn post_handler(
 
 async fn action_handler(state: AppState, action: Action) -> Fallible<()> {
     match action {
-        Action::Reveal => {
-            state.session_state.lock().unwrap().reveal = true;
-        }
         Action::Undo => {
-            // Per-rating undo: best-effort, requires re-reading the previous
-            // performance from DB and rolling back the last review row. The
-            // current undo behavior of the drill UI relied on the cache; we
-            // simplify by making Undo a no-op in serve mode (the request that
-            // last rated a card has already been committed to disk). The Undo
-            // button is hidden in get.rs.
+            // Per-rating undo would require rolling back the last review row.
+            // Serve mode treats Undo as a no-op (the rating is already on disk).
+            // The Undo button is hidden in get.rs.
         }
         Action::Forgot | Action::Hard | Action::Good | Action::Easy => {
-            // Read the card hash and reveal state atomically.
-            let (current_hash, was_revealed) = {
-                let session = state.session_state.lock().unwrap();
-                (session.current_card, session.reveal)
-            };
-            if !was_revealed {
-                return Ok(());
-            }
+            let current_hash = state.session_state.lock().unwrap().current_card;
             let hash = match current_hash {
                 Some(h) => h,
                 None => return Ok(()),
             };
 
-            // Find the card in the index by hash. The card may have been
-            // deleted between the GET and this POST (e.g. file watcher
-            // rebuilt the index). If so, log and bail.
-            let card: Card = {
-                let index = state.cards.read().unwrap();
-                match index.cards.iter().find(|c| c.hash() == hash).cloned() {
-                    Some(c) => c,
-                    None => {
-                        log::warn!(
-                            "current_card hash not found in index (likely deleted between GET and POST)"
-                        );
-                        let mut session = state.session_state.lock().unwrap();
-                        session.current_card = None;
-                        session.reveal = false;
-                        return Ok(());
-                    }
-                }
-            };
-            let _ = card; // hash is what we need; card ownership confirms it exists.
+            // Confirm the card still exists in the index (it may have been
+            // deleted between GET and POST by the file watcher).
+            let exists = state
+                .cards
+                .read()
+                .unwrap()
+                .cards
+                .iter()
+                .any(|c| c.hash() == hash);
+            if !exists {
+                log::warn!(
+                    "current_card hash not found in index (likely deleted between GET and POST)"
+                );
+                state.session_state.lock().unwrap().current_card = None;
+                return Ok(());
+            }
 
             let grade = action.grade();
             let reviewed_at = Timestamp::now();
@@ -133,23 +115,17 @@ async fn action_handler(state: AppState, action: Action) -> Fallible<()> {
                 db.record_rating(state.session_id, &record, new_perf_enum)?;
             }
 
-            // Update session state: relapse queue, reveal flag, current_card.
             let mut session = state.session_state.lock().unwrap();
             if grade == Grade::Forgot || grade == Grade::Hard {
-                // If the card was forgotten or rated Hard, it needs to be
-                // re-shown this session. Because MIN_INTERVAL=1, the DB
-                // schedules it for tomorrow; we track it in the relapse queue
-                // so it re-surfaces before the other due cards.
+                // Re-show this session: MIN_INTERVAL=1 schedules it for tomorrow,
+                // so the relapse queue surfaces it before other due cards today.
                 if !session.relapse_queue.contains(&hash) {
                     session.relapse_queue.push(hash);
                 }
             } else {
-                // Card was rated Good or Easy; remove from relapse queue if
-                // it was there from a prior relapse.
                 session.relapse_queue.retain(|h| h != &hash);
             }
             session.current_card = None;
-            session.reveal = false;
         }
     }
     Ok(())

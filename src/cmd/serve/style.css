@@ -4,6 +4,10 @@
     font-weight: normal;
 }
 
+.is-hidden {
+    display: none !important;
+}
+
 *,
 *::before,
 *::after {
@@ -441,6 +445,10 @@ body {
             input {
                 margin: 0 12px;
             }
+
+            .grades {
+                display: contents;
+            }
         }
     }
 
@@ -645,6 +653,35 @@ body {
     font-weight: 600;
 }
 
+.dashboard .stats-row {
+    display: flex;
+    gap: 1.5rem;
+    flex-wrap: wrap;
+}
+
+.dashboard .stat {
+    flex: 1 1 auto;
+    min-width: 110px;
+    padding: 0.75rem 1rem;
+    border: 1px solid rgba(0,0,0,0.08);
+    border-radius: 8px;
+    background: rgba(0,0,0,0.02);
+}
+
+.dashboard .stat .stat-value {
+    font-size: 2rem;
+    font-weight: 700;
+    line-height: 1.1;
+    font-feature-settings: "tnum";
+    font-variant-numeric: tabular-nums;
+}
+
+.dashboard .stat .stat-label {
+    color: var(--text-secondary, #666);
+    font-size: 0.85rem;
+    margin-top: 0.15rem;
+}
+
 .dashboard .heatmap {
     overflow-x: auto;
 }
@@ -655,6 +692,11 @@ body {
 .dashboard .heatmap-svg .hm-2 { fill: #40c463; }
 .dashboard .heatmap-svg .hm-3 { fill: #30a14e; }
 .dashboard .heatmap-svg .hm-4 { fill: #216e39; }
+.dashboard .heatmap-svg .hm-axis {
+    font-family: system-ui, -apple-system, "Helvetica Neue", sans-serif;
+    font-size: 9px;
+    fill: var(--text-secondary, #666);
+}
 
 .dashboard .footer {
     color: var(--text-secondary, #666);
@@ -684,4 +726,9 @@ body {
     .dashboard .heatmap-svg .hm-2 { fill: #006d32; }
     .dashboard .heatmap-svg .hm-3 { fill: #26a641; }
     .dashboard .heatmap-svg .hm-4 { fill: #39d353; }
+    .dashboard .heatmap-svg .hm-axis { fill: #9aa3ad; }
+    .dashboard .stat {
+        border-color: rgba(255,255,255,0.08);
+        background: rgba(255,255,255,0.03);
+    }
 }

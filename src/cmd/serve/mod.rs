@@ -159,17 +159,14 @@ mod tests {
         let html = response.text().await?;
         assert!(html.contains("cards due") || html.contains("caught up"));
 
-        // Hit reveal.
-        let response = reqwest::Client::new()
-            .post(format!("http://{TEST_HOST}:{port}/"))
-            .form(&[("action", "Reveal")])
-            .send()
-            .await?;
+        // GET /drill — both prompt halves are inlined; the answer is hidden
+        // via class so JS can reveal it without another round-trip.
+        let response = reqwest::get(format!("http://{TEST_HOST}:{port}/drill")).await?;
         assert!(response.status().is_success());
         let html = response.text().await?;
         assert!(html.contains("baz <span class='cloze-reveal'>quux</span>"));
 
-        // Hit 'Good'.
+        // POST 'Good' — accepted without any prior reveal action.
         let response = reqwest::Client::new()
             .post(format!("http://{TEST_HOST}:{port}/"))
             .form(&[("action", "Good")])
@@ -177,19 +174,9 @@ mod tests {
             .await?;
         assert!(response.status().is_success());
         let html = response.text().await?;
-        assert!(html.contains("FOO"));
+        assert!(html.contains("FOO") && html.contains("BAR"));
 
-        // Hit reveal.
-        let response = reqwest::Client::new()
-            .post(format!("http://{TEST_HOST}:{port}/"))
-            .form(&[("action", "Reveal")])
-            .send()
-            .await?;
-        assert!(response.status().is_success());
-        let html = response.text().await?;
-        assert!(html.contains("BAR"));
-
-        // After rating the final card, we should see the caught-up screen.
+        // Rate the final card.
         let response = reqwest::Client::new()
             .post(format!("http://{TEST_HOST}:{port}/"))
             .form(&[("action", "Good")])
@@ -314,13 +301,14 @@ mod tests {
         Ok(())
     }
 
-    /// Regression: with shuffle=true (the production default), GET /drill
-    /// then POST /Reveal then GET /drill must render the SAME card and
-    /// must show its answer. Previously, the second GET re-shuffled the
-    /// queue and picked a different card, leaving the user looking at a
-    /// new question and concluding "Reveal didn't show the answer."
+    /// Reveal is client-side: GET /drill must render BOTH the question and the
+    /// answer text inline (the answer hidden via a CSS class), and the page
+    /// must contain a "Reveal" control plus the grade buttons. POST grade
+    /// works without any prior server-side reveal step. This rules out the
+    /// bug class where POST→redirect→GET could re-shuffle and show a
+    /// different card with the wrong answer.
     #[tokio::test]
-    async fn test_reveal_pins_to_same_card_with_shuffle() -> Fallible<()> {
+    async fn test_drill_reveals_client_side_with_shuffle() -> Fallible<()> {
         use std::fs::write;
 
         let port = pick_unused_port().unwrap();
@@ -363,14 +351,10 @@ A: ECHO-A
         spawn(async move { start_server(config).await });
         wait_for_server(TEST_HOST, port).await?;
 
-        // Use a client that does not auto-follow redirects so we can
-        // separately observe the redirect from POST and the GET.
         let client = reqwest::Client::builder()
             .redirect(reqwest::redirect::Policy::none())
             .build()?;
 
-        // GET /drill — capture which card was rendered (look for one of the
-        // five known fronts in the question div).
         let html1 = client
             .get(format!("http://{TEST_HOST}:{port}/drill"))
             .send()
@@ -386,22 +370,33 @@ A: ECHO-A
         let chosen_front = fronts[chosen];
         let chosen_back = backs[chosen];
 
-        // The unrevealed page must NOT yet contain the answer text.
+        // Both halves must be in the DOM so JS can flip visibility client-side.
         assert!(
-            !html1.contains(chosen_back),
-            "answer text {chosen_back} should not appear before Reveal"
+            html1.contains(chosen_front),
+            "question {chosen_front} should be rendered"
+        );
+        assert!(
+            html1.contains(chosen_back),
+            "answer {chosen_back} should be inlined (hidden via class) for client-side reveal"
+        );
+        // The Reveal control and grade buttons must all be present.
+        assert!(html1.contains(r#"id="reveal""#), "Reveal button missing");
+        assert!(html1.contains(r#"id="good""#), "Good button missing");
+        assert!(
+            html1.contains("is-hidden"),
+            "answer/grades should be hidden via the is-hidden class"
         );
 
-        // POST /Reveal
+        // POST a grade with no prior Reveal — it should be accepted (the
+        // server no longer gates ratings on a reveal flag).
         let resp = client
             .post(format!("http://{TEST_HOST}:{port}/"))
-            .form(&[("action", "Reveal")])
+            .form(&[("action", "Good")])
             .send()
             .await?;
         assert!(resp.status().is_redirection());
 
-        // GET /drill again. Same card should be shown, and the answer
-        // text must now be present.
+        // The next GET cycles in a different card.
         let html2 = client
             .get(format!("http://{TEST_HOST}:{port}/drill"))
             .send()
@@ -409,47 +404,9 @@ A: ECHO-A
             .text()
             .await?;
         assert!(
-            html2.contains(chosen_front),
-            "after Reveal, the same card {chosen_front} should still be rendered. html: {html2}"
-        );
-        assert!(
-            html2.contains(chosen_back),
-            "after Reveal, the answer {chosen_back} should be visible. html: {html2}"
+            !html2.contains(chosen_front) || html2.contains("You're caught up."),
+            "after grading, the chosen card {chosen_front} should not be the one rendered"
         );
         Ok(())
     }
-
-    #[tokio::test]
-    async fn test_answer_without_reveal() -> Fallible<()> {
-        let port = pick_unused_port().unwrap();
-        let directory = create_tmp_copy_of_test_directory()?;
-        let session_started_at = Timestamp::now();
-        let config = ServerConfig {
-            directory: Some(directory),
-            host: TEST_HOST.to_string(),
-            port,
-            session_started_at,
-            card_limit: None,
-            new_card_limit: None,
-            deck_filter: None,
-            shuffle: false,
-            answer_controls: AnswerControls::Full,
-            bury_siblings: false,
-            rescan_interval: None,
-            no_watch: false,
-        };
-        spawn(async move { start_server(config).await });
-        wait_for_server(TEST_HOST, port).await?;
-
-        // Hit 'Hard'.
-        let response = reqwest::Client::new()
-            .post(format!("http://{TEST_HOST}:{port}/"))
-            .form(&[("action", "Hard")])
-            .send()
-            .await?;
-        assert!(response.status().is_success());
-
-        Ok(())
-    }
-
 }

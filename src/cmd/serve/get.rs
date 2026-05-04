@@ -22,7 +22,6 @@ use serde::Deserialize;
 
 use crate::cmd::serve::server::AnswerControls;
 use crate::cmd::serve::state::AppState;
-use crate::cmd::serve::state::SessionState;
 use crate::cmd::serve::template::page_template;
 use crate::error::Fallible;
 use crate::markdown::MarkdownRenderConfig;
@@ -60,33 +59,21 @@ async fn inner(state: AppState, deck: Option<String>) -> Fallible<Markup> {
     }
     let queue = filtered_state.compute_due_queue(today)?;
     let body = if queue.is_empty() {
-        // Clear current_card when there is nothing left to show.
         let mut session = filtered_state.session_state.lock().unwrap();
         session.current_card = None;
         drop(session);
         render_caught_up()
     } else {
         let remaining = queue.len();
-        // Pin to the previously-rendered card if it's still in the queue. This
-        // prevents shuffle from re-randomizing between the GET that displayed
-        // the question and the redirected GET after Reveal — without this,
-        // clicking Reveal would render a *different* card with reveal=true,
-        // and the user would conclude that Reveal didn't show their answer.
-        // POST clears current_card on grade, so the next GET picks fresh.
+        // Pin to the previously-rendered card if it's still in the queue, so a
+        // page refresh doesn't re-shuffle out from under the user. POST clears
+        // current_card on grade, so the next GET cycles in fresh.
         let pinned_hash = filtered_state.session_state.lock().unwrap().current_card;
         let card = pinned_hash
             .and_then(|h| queue.iter().find(|c| c.hash() == h).cloned())
             .unwrap_or_else(|| queue.first().cloned().unwrap());
-        let session_snapshot = {
-            let mut session = filtered_state.session_state.lock().unwrap();
-            session.current_card = Some(card.hash());
-            SessionState {
-                reveal: session.reveal,
-                relapse_queue: session.relapse_queue.clone(),
-                current_card: session.current_card,
-            }
-        };
-        render_card_page(&filtered_state, &session_snapshot, &card, remaining)?
+        filtered_state.session_state.lock().unwrap().current_card = Some(card.hash());
+        render_card_page(&filtered_state, &card, remaining)?
     };
     Ok(page_template(body))
 }
@@ -102,7 +89,6 @@ fn render_caught_up() -> Markup {
 
 fn render_card_page(
     state: &AppState,
-    session: &SessionState,
     card: &Card,
     remaining: usize,
 ) -> Fallible<Markup> {
@@ -115,36 +101,30 @@ fn render_card_page(
             .build()?,
         port: state.port,
     };
-    let card_content = render_card(card, session.reveal, &config)?;
-    let card_controls = if session.reveal {
-        let grades = match state.answer_controls {
-            AnswerControls::Binary => html! {
-                input id="forgot" type="submit" name="action" value="Forgot" title="Mark card as forgotten.";
-                input id="good" type="submit" name="action" value="Good" title="Mark card as remembered.";
-            },
-            AnswerControls::Full => html! {
-                input id="forgot" type="submit" name="action" value="Forgot" title="Mark card as forgotten. Shortcut: 1.";
-                input id="hard" type="submit" name="action" value="Hard" title="Mark card as difficult. Shortcut: 2.";
-                input id="good" type="submit" name="action" value="Good" title="Mark card as remembered well. Shortcut: 3.";
-                input id="easy" type="submit" name="action" value="Easy" title="Mark card as very easy. Shortcut: 4.";
-            },
-        };
-        html! {
-            form action="/" method="post" {
-                div.spacer {}
-                div.grades {
-                    (grades)
-                }
-                div.spacer {}
+    let card_content = render_card(card, &config)?;
+    let grades = match state.answer_controls {
+        AnswerControls::Binary => html! {
+            input id="forgot" type="submit" name="action" value="Forgot" title="Mark card as forgotten." disabled;
+            input id="good" type="submit" name="action" value="Good" title="Mark card as remembered." disabled;
+        },
+        AnswerControls::Full => html! {
+            input id="forgot" type="submit" name="action" value="Forgot" title="Mark card as forgotten. Shortcut: 1." disabled;
+            input id="hard" type="submit" name="action" value="Hard" title="Mark card as difficult. Shortcut: 2." disabled;
+            input id="good" type="submit" name="action" value="Good" title="Mark card as remembered well. Shortcut: 3." disabled;
+            input id="easy" type="submit" name="action" value="Easy" title="Mark card as very easy. Shortcut: 4." disabled;
+        },
+    };
+    // Reveal is a client-side toggle: clicking it unhides the answer and the
+    // grade buttons. No POST, no GET, no chance for the queue to re-shuffle
+    // out from under the user.
+    let card_controls = html! {
+        form action="/" method="post" {
+            div.spacer {}
+            input id="reveal" type="button" value="Reveal" title="Show the answer. Shortcut: space.";
+            div.grades.is-hidden {
+                (grades)
             }
-        }
-    } else {
-        html! {
-            form action="/" method="post" {
-                div.spacer {}
-                input id="reveal" type="submit" name="action" value="Reveal" title="Show the answer. Shortcut: space.";
-                div.spacer {}
-            }
+            div.spacer {}
         }
     };
     let html = html! {
@@ -173,38 +153,28 @@ fn render_card_page(
     Ok(html)
 }
 
-fn render_card(card: &Card, reveal: bool, config: &MarkdownRenderConfig) -> Fallible<Markup> {
+fn render_card(card: &Card, config: &MarkdownRenderConfig) -> Fallible<Markup> {
     let html = match card.card_type() {
         CardType::Basic => {
-            if reveal {
-                html! {
-                    div .question .rich-text {
-                        (card.html_front(config)?)
-                    }
-                    div .answer .rich-text {
+            html! {
+                div .question .rich-text {
+                    (card.html_front(config)?)
+                }
+                div .answer .rich-text {
+                    div #answer-body .is-hidden {
                         (card.html_back(config)?)
                     }
-                }
-            } else {
-                html! {
-                    div .question .rich-text {
-                        (card.html_front(config)?)
-                    }
-                    div .answer .rich-text {}
                 }
             }
         }
         CardType::Cloze => {
-            if reveal {
-                html! {
-                    div .prompt .rich-text {
-                        (card.html_back(config)?)
-                    }
-                }
-            } else {
-                html! {
-                    div .prompt .rich-text {
+            html! {
+                div .prompt .rich-text {
+                    div #prompt-front {
                         (card.html_front(config)?)
+                    }
+                    div #prompt-back .is-hidden {
+                        (card.html_back(config)?)
                     }
                 }
             }
