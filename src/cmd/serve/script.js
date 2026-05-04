@@ -72,6 +72,7 @@ document.addEventListener("keydown", function (event) {
   const keybindings = {
     " ": "reveal", // Space
     u: "undo",
+    r: "reject",
     1: "forgot",
     2: "hard",
     3: "good",

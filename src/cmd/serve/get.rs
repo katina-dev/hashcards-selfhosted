@@ -106,12 +106,14 @@ fn render_card_page(
         AnswerControls::Binary => html! {
             input id="forgot" type="submit" name="action" value="Forgot" title="Mark card as forgotten." disabled;
             input id="good" type="submit" name="action" value="Good" title="Mark card as remembered." disabled;
+            input id="reject" .reject type="submit" name="action" value="Reject" title="Reject this card as low quality. Shortcut: r." disabled;
         },
         AnswerControls::Full => html! {
             input id="forgot" type="submit" name="action" value="Forgot" title="Mark card as forgotten. Shortcut: 1." disabled;
             input id="hard" type="submit" name="action" value="Hard" title="Mark card as difficult. Shortcut: 2." disabled;
             input id="good" type="submit" name="action" value="Good" title="Mark card as remembered well. Shortcut: 3." disabled;
             input id="easy" type="submit" name="action" value="Easy" title="Mark card as very easy. Shortcut: 4." disabled;
+            input id="reject" .reject type="submit" name="action" value="Reject" title="Reject this card as low quality. It won't appear again. Shortcut: r." disabled;
         },
     };
     // Reveal is a client-side toggle: clicking it unhides the answer and the

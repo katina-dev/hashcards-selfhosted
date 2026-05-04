@@ -64,8 +64,16 @@ impl Database {
             let tx = conn.transaction()?;
             if !probe_schema_exists(&tx)? {
                 tx.execute_batch(include_str!("schema.sql"))?;
-                tx.commit()?;
             }
+            // Idempotent migrations for tables added after the initial schema.
+            // Runs every startup so existing databases pick up new tables.
+            tx.execute_batch(
+                "create table if not exists rejected_cards (
+                    card_hash text primary key,
+                    rejected_at text not null
+                ) strict;",
+            )?;
+            tx.commit()?;
         }
         Ok(Self { conn })
     }
@@ -80,6 +88,30 @@ impl Database {
         let sql = "insert into cards (card_hash, added_at, review_count) values (?, ?, 0);";
         self.conn.execute(sql, params![card_hash, added_at])?;
         Ok(())
+    }
+
+    /// Mark a card as rejected (low quality). Idempotent: rejecting an
+    /// already-rejected card is a no-op rather than an error.
+    pub fn reject_card(&self, card_hash: CardHash, rejected_at: Timestamp) -> Fallible<()> {
+        let sql = "insert or ignore into rejected_cards (card_hash, rejected_at) values (?, ?);";
+        self.conn.execute(sql, params![card_hash, rejected_at])?;
+        Ok(())
+    }
+
+    /// Return the set of card hashes the user has rejected. These are
+    /// filtered out of the review queue.
+    pub fn rejected_card_hashes(&self) -> Fallible<HashSet<CardHash>> {
+        let sql = "select card_hash from rejected_cards;";
+        let mut stmt = self.conn.prepare(sql)?;
+        let iter = stmt.query_map([], |row| {
+            let h: CardHash = row.get(0)?;
+            Ok(h)
+        })?;
+        let mut out = HashSet::new();
+        for h in iter {
+            out.insert(h?);
+        }
+        Ok(out)
     }
 
     /// Return the set of all card hashes in the database.

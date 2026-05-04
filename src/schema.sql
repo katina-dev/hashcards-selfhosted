@@ -36,3 +36,13 @@ create table reviews (
     interval_days integer not null,
     due_date text not null
 ) strict;
+
+-- Cards rejected by the user (low quality). Filtered out of the
+-- review queue. No foreign key to `cards` because a card may be
+-- rejected before it has ever been reviewed (and thus before it
+-- has a row in `cards`). Editing the markdown changes the hash,
+-- which un-rejects the card by giving it a fresh identity.
+create table rejected_cards (
+    card_hash text primary key,
+    rejected_at text not null
+) strict;

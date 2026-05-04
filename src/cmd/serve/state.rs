@@ -89,11 +89,12 @@ impl AppState {
 
         let db = self.db.lock().unwrap();
         let due_today: HashSet<CardHash> = db.due_today(today)?;
+        let rejected: HashSet<CardHash> = db.rejected_card_hashes()?;
         drop(db);
 
         let due_today: Vec<Card> = all_cards
             .iter()
-            .filter(|c| due_today.contains(&c.hash()))
+            .filter(|c| due_today.contains(&c.hash()) && !rejected.contains(&c.hash()))
             .cloned()
             .collect();
 
@@ -123,13 +124,14 @@ impl AppState {
         // Prepend relapsed cards (Forgot/Hard rated this session), using the
         // snapshot taken at the top of this method.
         if !relapse_hashes.is_empty() {
-            // Build relapse cards in order, deduplicating against due_today.
+            // Build relapse cards in order, deduplicating against due_today
+            // and dropping anything the user has rejected since.
             let due_hashes: HashSet<CardHash> = due_today.iter().map(|c| c.hash()).collect();
             let mut relapse_cards: Vec<Card> = relapse_hashes
                 .iter()
                 .filter_map(|hash| {
-                    if due_hashes.contains(hash) {
-                        None // already in queue
+                    if due_hashes.contains(hash) || rejected.contains(hash) {
+                        None
                     } else {
                         all_cards.iter().find(|c| &c.hash() == hash).cloned()
                     }

@@ -29,6 +29,7 @@ use crate::types::timestamp::Timestamp;
 #[derive(Debug, Deserialize)]
 enum Action {
     Undo,
+    Reject,
     Forgot,
     Hard,
     Good,
@@ -42,7 +43,7 @@ impl Action {
             Action::Hard => Grade::Hard,
             Action::Good => Grade::Good,
             Action::Easy => Grade::Easy,
-            Action::Undo => panic!("Action does not correspond to a grade"),
+            Action::Undo | Action::Reject => panic!("Action does not correspond to a grade"),
         }
     }
 }
@@ -68,6 +69,20 @@ async fn action_handler(state: AppState, action: Action) -> Fallible<()> {
             // Per-rating undo would require rolling back the last review row.
             // Serve mode treats Undo as a no-op (the rating is already on disk).
             // The Undo button is hidden in get.rs.
+        }
+        Action::Reject => {
+            let current_hash = state.session_state.lock().unwrap().current_card;
+            let hash = match current_hash {
+                Some(h) => h,
+                None => return Ok(()),
+            };
+            {
+                let db = state.db.lock().unwrap();
+                db.reject_card(hash, Timestamp::now())?;
+            }
+            let mut session = state.session_state.lock().unwrap();
+            session.relapse_queue.retain(|h| h != &hash);
+            session.current_card = None;
         }
         Action::Forgot | Action::Hard | Action::Good | Action::Easy => {
             let current_hash = state.session_state.lock().unwrap().current_card;

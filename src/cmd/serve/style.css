@@ -8,6 +8,29 @@
     display: none !important;
 }
 
+/* Destructive action button (e.g. Reject). Muted by default so it
+   doesn't compete with the grade buttons; reddens on hover. */
+input.reject {
+    color: #8a3a3a;
+    border-color: #c8a0a0 !important;
+}
+input.reject:hover {
+    background: #fbeaea !important;
+    color: #6a1e1e;
+    border-color: #a06060 !important;
+}
+@media (prefers-color-scheme: dark) {
+    input.reject {
+        color: #e6a8a8;
+        border-color: #6a4040 !important;
+    }
+    input.reject:hover {
+        background: #3a2222 !important;
+        color: #f4caca;
+        border-color: #8a5050 !important;
+    }
+}
+
 *,
 *::before,
 *::after {

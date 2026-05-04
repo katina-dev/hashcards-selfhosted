@@ -301,6 +301,95 @@ mod tests {
         Ok(())
     }
 
+    /// Rejecting a card removes it from the review queue permanently
+    /// (until its markdown is edited and the hash changes).
+    #[tokio::test]
+    async fn test_reject_removes_card_from_queue() -> Fallible<()> {
+        use std::fs::write;
+
+        let port = pick_unused_port().unwrap();
+        let dir = tempdir()?.path().to_path_buf().canonicalize()?;
+        create_dir_all(&dir)?;
+        let cards = "\
+Q: ALPHA-Q
+A: ALPHA-A
+
+Q: BRAVO-Q
+A: BRAVO-A
+
+Q: CHARLIE-Q
+A: CHARLIE-A
+";
+        write(dir.join("Deck.md"), cards)?;
+        let directory = dir.canonicalize().unwrap().display().to_string();
+
+        let session_started_at = Timestamp::now();
+        let config = ServerConfig {
+            directory: Some(directory),
+            host: TEST_HOST.to_string(),
+            port,
+            session_started_at,
+            card_limit: None,
+            new_card_limit: None,
+            deck_filter: None,
+            shuffle: false,
+            answer_controls: AnswerControls::Full,
+            bury_siblings: false,
+            rescan_interval: None,
+            no_watch: true,
+        };
+        spawn(async move { start_server(config).await });
+        wait_for_server(TEST_HOST, port).await?;
+
+        let client = reqwest::Client::builder()
+            .redirect(reqwest::redirect::Policy::none())
+            .build()?;
+
+        // Reject all three cards in turn. After each reject the rejected
+        // card's question must not reappear, and after the last one the
+        // dashboard "caught up" screen takes over.
+        let fronts = ["ALPHA-Q", "BRAVO-Q", "CHARLIE-Q"];
+        let mut already_rejected: Vec<&str> = Vec::new();
+        for _ in 0..3 {
+            let html = client
+                .get(format!("http://{TEST_HOST}:{port}/drill"))
+                .send()
+                .await?
+                .text()
+                .await?;
+            let shown = fronts
+                .iter()
+                .find(|f| html.contains(*f))
+                .copied()
+                .expect("a non-rejected card should be rendered");
+            for r in &already_rejected {
+                assert!(
+                    !html.contains(r),
+                    "previously-rejected card {r} reappeared in /drill"
+                );
+            }
+            assert!(html.contains(r#"id="reject""#), "Reject button missing");
+            let resp = client
+                .post(format!("http://{TEST_HOST}:{port}/"))
+                .form(&[("action", "Reject")])
+                .send()
+                .await?;
+            assert!(resp.status().is_redirection());
+            already_rejected.push(shown);
+        }
+        let html = client
+            .get(format!("http://{TEST_HOST}:{port}/drill"))
+            .send()
+            .await?
+            .text()
+            .await?;
+        assert!(
+            html.contains("You're caught up."),
+            "after rejecting every card the queue should be empty"
+        );
+        Ok(())
+    }
+
     /// Reveal is client-side: GET /drill must render BOTH the question and the
     /// answer text inline (the answer hidden via a CSS class), and the page
     /// must contain a "Reveal" control plus the grade buttons. POST grade
