@@ -40,6 +40,15 @@
                 provides the same web UI as a long-running service.
             </change>
         </removed>
+        <fixed>
+            <change author="Katina Thongvong">
+                Fix `serve` mode bug where clicking Reveal would render a
+                different shuffled card with its answer instead of revealing
+                the answer to the card the user was looking at. The drill
+                view now pins to the previously-rendered card across the
+                Reveal redirect.
+            </change>
+        </fixed>
     </unreleased>
     <releases>
         <release version="0.3.0" date="2026-01-11">

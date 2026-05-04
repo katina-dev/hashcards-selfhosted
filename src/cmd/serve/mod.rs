@@ -314,6 +314,111 @@ mod tests {
         Ok(())
     }
 
+    /// Regression: with shuffle=true (the production default), GET /drill
+    /// then POST /Reveal then GET /drill must render the SAME card and
+    /// must show its answer. Previously, the second GET re-shuffled the
+    /// queue and picked a different card, leaving the user looking at a
+    /// new question and concluding "Reveal didn't show the answer."
+    #[tokio::test]
+    async fn test_reveal_pins_to_same_card_with_shuffle() -> Fallible<()> {
+        use std::fs::write;
+
+        let port = pick_unused_port().unwrap();
+        let dir = tempdir()?.path().to_path_buf().canonicalize()?;
+        create_dir_all(&dir)?;
+        let cards = "\
+Q: ALPHA-Q
+A: ALPHA-A
+
+Q: BRAVO-Q
+A: BRAVO-A
+
+Q: CHARLIE-Q
+A: CHARLIE-A
+
+Q: DELTA-Q
+A: DELTA-A
+
+Q: ECHO-Q
+A: ECHO-A
+";
+        write(dir.join("Deck.md"), cards)?;
+        let directory = dir.canonicalize().unwrap().display().to_string();
+
+        let session_started_at = Timestamp::now();
+        let config = ServerConfig {
+            directory: Some(directory),
+            host: TEST_HOST.to_string(),
+            port,
+            session_started_at,
+            card_limit: None,
+            new_card_limit: None,
+            deck_filter: None,
+            shuffle: true,
+            answer_controls: AnswerControls::Full,
+            bury_siblings: false,
+            rescan_interval: None,
+            no_watch: true,
+        };
+        spawn(async move { start_server(config).await });
+        wait_for_server(TEST_HOST, port).await?;
+
+        // Use a client that does not auto-follow redirects so we can
+        // separately observe the redirect from POST and the GET.
+        let client = reqwest::Client::builder()
+            .redirect(reqwest::redirect::Policy::none())
+            .build()?;
+
+        // GET /drill — capture which card was rendered (look for one of the
+        // five known fronts in the question div).
+        let html1 = client
+            .get(format!("http://{TEST_HOST}:{port}/drill"))
+            .send()
+            .await?
+            .text()
+            .await?;
+        let fronts = ["ALPHA-Q", "BRAVO-Q", "CHARLIE-Q", "DELTA-Q", "ECHO-Q"];
+        let backs = ["ALPHA-A", "BRAVO-A", "CHARLIE-A", "DELTA-A", "ECHO-A"];
+        let chosen = fronts
+            .iter()
+            .position(|f| html1.contains(f))
+            .expect("first GET /drill should render one of the known cards");
+        let chosen_front = fronts[chosen];
+        let chosen_back = backs[chosen];
+
+        // The unrevealed page must NOT yet contain the answer text.
+        assert!(
+            !html1.contains(chosen_back),
+            "answer text {chosen_back} should not appear before Reveal"
+        );
+
+        // POST /Reveal
+        let resp = client
+            .post(format!("http://{TEST_HOST}:{port}/"))
+            .form(&[("action", "Reveal")])
+            .send()
+            .await?;
+        assert!(resp.status().is_redirection());
+
+        // GET /drill again. Same card should be shown, and the answer
+        // text must now be present.
+        let html2 = client
+            .get(format!("http://{TEST_HOST}:{port}/drill"))
+            .send()
+            .await?
+            .text()
+            .await?;
+        assert!(
+            html2.contains(chosen_front),
+            "after Reveal, the same card {chosen_front} should still be rendered. html: {html2}"
+        );
+        assert!(
+            html2.contains(chosen_back),
+            "after Reveal, the answer {chosen_back} should be visible. html: {html2}"
+        );
+        Ok(())
+    }
+
     #[tokio::test]
     async fn test_answer_without_reveal() -> Fallible<()> {
         let port = pick_unused_port().unwrap();

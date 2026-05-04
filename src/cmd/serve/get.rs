@@ -67,9 +67,16 @@ async fn inner(state: AppState, deck: Option<String>) -> Fallible<Markup> {
         render_caught_up()
     } else {
         let remaining = queue.len();
-        let card = queue.into_iter().next().unwrap();
-        // Record which card we are about to render so POST can grade THIS card
-        // even if compute_due_queue would re-shuffle on the next call.
+        // Pin to the previously-rendered card if it's still in the queue. This
+        // prevents shuffle from re-randomizing between the GET that displayed
+        // the question and the redirected GET after Reveal — without this,
+        // clicking Reveal would render a *different* card with reveal=true,
+        // and the user would conclude that Reveal didn't show their answer.
+        // POST clears current_card on grade, so the next GET picks fresh.
+        let pinned_hash = filtered_state.session_state.lock().unwrap().current_card;
+        let card = pinned_hash
+            .and_then(|h| queue.iter().find(|c| c.hash() == h).cloned())
+            .unwrap_or_else(|| queue.first().cloned().unwrap());
         let session_snapshot = {
             let mut session = filtered_state.session_state.lock().unwrap();
             session.current_card = Some(card.hash());
