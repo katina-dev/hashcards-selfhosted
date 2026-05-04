@@ -13,8 +13,8 @@
             <change author="Katina Thongvong">
                 Add `serve` subcommand: a perpetual self-hosted web app
                 that persists ratings per-card, picks up file edits via
-                inotify, and provides a dashboard with heatmap of review
-                activity. Designed to run as a Docker container.
+                inotify, and provides a review dashboard. Designed to
+                run as a Docker container.
             </change>
             <change author="Katina Thongvong">
                 Implement `stats --format html` output.
@@ -24,9 +24,7 @@
             </change>
             <change author="Katina Thongvong">
                 Dashboard now shows current day-streak, total reviews, and
-                30-day retention rate. The activity heatmap has month
-                labels along the top, weekday labels on the left, and a
-                Less→More color legend.
+                30-day retention rate.
             </change>
             <change author="Katina Thongvong">
                 The Docker image now bundles `tzdata` and the example
