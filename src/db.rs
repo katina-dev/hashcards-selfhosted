@@ -182,6 +182,7 @@ impl Database {
     /// Update a card's performance information.
     ///
     /// If no card with the given hash exists, returns an error.
+    #[cfg(test)]
     pub fn update_card_performance(
         &self,
         card_hash: CardHash,
@@ -226,6 +227,7 @@ impl Database {
     }
 
     /// Save a session.
+    #[cfg(test)]
     pub fn save_session(
         &mut self,
         started_at: Timestamp,
@@ -404,6 +406,7 @@ impl Database {
     }
 
     /// Append a single review to an existing session.
+    #[cfg(test)]
     pub fn save_review(&self, session_id: i64, review: &ReviewRecord) -> Fallible<()> {
         let sql = "insert into reviews (session_id, card_hash, reviewed_at, grade, stability, difficulty, interval_raw, interval_days, due_date) values (?, ?, ?, ?, ?, ?, ?, ?, ?);";
         self.conn.execute(

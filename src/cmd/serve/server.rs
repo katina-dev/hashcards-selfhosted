@@ -129,6 +129,7 @@ pub async fn start_server(config: ServerConfig) -> Fallible<()> {
         session_state: Arc::new(Mutex::new(SessionState {
             reveal: false,
             relapse_queue: Vec::new(),
+            current_card: None,
         })),
     };
 

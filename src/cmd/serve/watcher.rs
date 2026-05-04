@@ -61,7 +61,7 @@ pub fn spawn_watcher(
             move |res: notify::Result<notify::Event>| {
                 if let Ok(event) = res {
                     if event_is_relevant(&event) {
-                        let _ = tx_for_notify.blocking_send(());
+                        let _ = tx_for_notify.try_send(());
                     }
                 }
             },

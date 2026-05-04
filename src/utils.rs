@@ -12,17 +12,14 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::time::Duration;
-
-use tokio::net::TcpStream;
-use tokio::time::sleep;
-
-use crate::error::Fallible;
-
 // max-age is one week in seconds.
 pub const CACHE_CONTROL_IMMUTABLE: &str = "public, max-age=604800, immutable";
 
-pub async fn wait_for_server(host: &str, port: u16) -> Fallible<()> {
+#[cfg(test)]
+pub async fn wait_for_server(host: &str, port: u16) -> crate::error::Fallible<()> {
+    use std::time::Duration;
+    use tokio::net::TcpStream;
+    use tokio::time::sleep;
     loop {
         if let Ok(stream) = TcpStream::connect(format!("{host}:{port}")).await {
             drop(stream);

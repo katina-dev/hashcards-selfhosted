@@ -121,17 +121,6 @@ pub enum Maturity {
     Mature,
 }
 
-impl Maturity {
-    pub fn as_str(&self) -> &'static str {
-        match self {
-            Maturity::New => "New",
-            Maturity::Learning => "Learning",
-            Maturity::Young => "Young",
-            Maturity::Mature => "Mature",
-        }
-    }
-}
-
 impl Performance {
     pub fn maturity(&self) -> Maturity {
         match self {

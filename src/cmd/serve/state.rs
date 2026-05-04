@@ -45,6 +45,19 @@ pub struct ServeFilters {
 }
 
 #[derive(Clone)]
+pub struct SessionState {
+    pub reveal: bool,
+    /// Cards that were rated Forgot/Hard this session and must be re-shown
+    /// before any other due card, because MIN_INTERVAL=1 means they are
+    /// scheduled for tomorrow in the DB (not today).
+    pub relapse_queue: Vec<CardHash>,
+    /// The hash of the card most recently rendered to the user by GET /drill.
+    /// POST /rate reads this to grade the card the user actually saw, avoiding
+    /// a race where compute_due_queue re-shuffles between the GET and POST.
+    pub current_card: Option<CardHash>,
+}
+
+#[derive(Clone)]
 pub struct AppState {
     pub port: u16,
     pub directory: PathBuf,
@@ -55,14 +68,6 @@ pub struct AppState {
     pub cards: Arc<RwLock<CardIndex>>,
     pub db: Arc<Mutex<Database>>,
     pub session_state: Arc<Mutex<SessionState>>,
-}
-
-pub struct SessionState {
-    pub reveal: bool,
-    /// Cards that were rated Forgot/Hard this session and must be re-shown
-    /// before any other due card, because MIN_INTERVAL=1 means they are
-    /// scheduled for tomorrow in the DB (not today).
-    pub relapse_queue: Vec<CardHash>,
 }
 
 impl AppState {

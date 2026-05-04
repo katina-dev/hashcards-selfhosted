@@ -59,13 +59,27 @@ async fn inner(state: AppState, deck: Option<String>) -> Fallible<Markup> {
         filtered_state.filters.deck_filter = Some(d);
     }
     let queue = filtered_state.compute_due_queue(today)?;
-    let session = filtered_state.session_state.lock().unwrap();
     let body = if queue.is_empty() {
+        // Clear current_card when there is nothing left to show.
+        let mut session = filtered_state.session_state.lock().unwrap();
+        session.current_card = None;
+        drop(session);
         render_caught_up()
     } else {
         let remaining = queue.len();
         let card = queue.into_iter().next().unwrap();
-        render_card_page(&filtered_state, &session, &card, remaining)?
+        // Record which card we are about to render so POST can grade THIS card
+        // even if compute_due_queue would re-shuffle on the next call.
+        let session_snapshot = {
+            let mut session = filtered_state.session_state.lock().unwrap();
+            session.current_card = Some(card.hash());
+            SessionState {
+                reveal: session.reveal,
+                relapse_queue: session.relapse_queue.clone(),
+                current_card: session.current_card,
+            }
+        };
+        render_card_page(&filtered_state, &session_snapshot, &card, remaining)?
     };
     Ok(page_template(body))
 }

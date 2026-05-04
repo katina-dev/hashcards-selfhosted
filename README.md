@@ -107,9 +107,9 @@ did, with one of four choices:
 3. Good (shortcut: `3`)
 4. Easy (shortcut: `4`)
 
-Be honest. If you got the answer almost right, press "Forgot". If you mis-grade
-something, you can undo (shortcut: `u`). Ratings are saved immediately per-card;
-the server runs continuously so you can return at any time.
+Be honest. If you got the answer almost right, press "Forgot". Once you grade a
+card, the rating is saved immediately. The server runs continuously so you can
+return at any time.
 
 To learn how to write good flashcards, read [Effective Spaced Repetition][esr].
 
@@ -162,8 +162,6 @@ Options:
 - `--new-card-limit=<N>`: Limit the number of new cards in the session.
 - `--port=<PORT>`: Use a specific port (default: 8000).
 - `--from-deck=<NAME>`: Only serve cards from a deck with the given name.
-- `--open-browser=<true|false>`: Whether or not to open the browser after the
-  server starts (default: true).
 - `--rescan-interval=<DURATION>`: Poll interval for file changes (e.g. `30s`).
   Use on Windows hosts where inotify is unavailable.
 

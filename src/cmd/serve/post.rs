@@ -22,8 +22,6 @@ use crate::db::ReviewRecord;
 use crate::error::Fallible;
 use crate::fsrs::Grade;
 use crate::types::card::Card;
-use crate::types::card_hash::CardHash;
-use crate::types::date::Date;
 use crate::types::performance::Performance;
 use crate::types::performance::ReviewedPerformance;
 use crate::types::performance::update_performance;
@@ -80,50 +78,68 @@ async fn action_handler(state: AppState, action: Action) -> Fallible<()> {
             // button is hidden in get.rs.
         }
         Action::Forgot | Action::Hard | Action::Good | Action::Easy => {
-            let today = Date::today();
-            let session = state.session_state.lock().unwrap();
-            if !session.reveal {
+            // Read the card hash and reveal state atomically.
+            let (current_hash, was_revealed) = {
+                let session = state.session_state.lock().unwrap();
+                (session.current_card, session.reveal)
+            };
+            if !was_revealed {
                 return Ok(());
             }
-            // Pick the current card the same way the GET handler does.
-            // We must drop the session lock before calling compute_due_queue
-            // (which acquires session_state lock internally).
-            drop(session);
+            let hash = match current_hash {
+                Some(h) => h,
+                None => return Ok(()),
+            };
 
-            let queue = state.compute_due_queue(today)?;
-            if queue.is_empty() {
-                return Ok(());
-            }
-            let card: Card = queue.into_iter().next().unwrap();
-            let hash: CardHash = card.hash();
+            // Find the card in the index by hash. The card may have been
+            // deleted between the GET and this POST (e.g. file watcher
+            // rebuilt the index). If so, log and bail.
+            let card: Card = {
+                let index = state.cards.read().unwrap();
+                match index.cards.iter().find(|c| c.hash() == hash).cloned() {
+                    Some(c) => c,
+                    None => {
+                        log::warn!(
+                            "current_card hash not found in index (likely deleted between GET and POST)"
+                        );
+                        let mut session = state.session_state.lock().unwrap();
+                        session.current_card = None;
+                        session.reveal = false;
+                        return Ok(());
+                    }
+                }
+            };
+            let _ = card; // hash is what we need; card ownership confirms it exists.
+
             let grade = action.grade();
             let reviewed_at = Timestamp::now();
 
-            let mut db = state.db.lock().unwrap();
-            let prior: Performance = db.get_card_performance(hash)?;
-            let new_perf: ReviewedPerformance = update_performance(prior, grade, reviewed_at);
-            let new_perf_enum = Performance::Reviewed(new_perf);
+            {
+                let mut db = state.db.lock().unwrap();
+                let prior: Performance = db.get_card_performance(hash)?;
+                let new_perf: ReviewedPerformance = update_performance(prior, grade, reviewed_at);
+                let new_perf_enum = Performance::Reviewed(new_perf);
 
-            let record = ReviewRecord {
-                card_hash: hash,
-                reviewed_at,
-                grade,
-                stability: new_perf.stability,
-                difficulty: new_perf.difficulty,
-                interval_raw: new_perf.interval_raw,
-                interval_days: new_perf.interval_days,
-                due_date: new_perf.due_date,
-            };
-            db.record_rating(state.session_id, &record, new_perf_enum)?;
-            drop(db);
+                let record = ReviewRecord {
+                    card_hash: hash,
+                    reviewed_at,
+                    grade,
+                    stability: new_perf.stability,
+                    difficulty: new_perf.difficulty,
+                    interval_raw: new_perf.interval_raw,
+                    interval_days: new_perf.interval_days,
+                    due_date: new_perf.due_date,
+                };
+                db.record_rating(state.session_id, &record, new_perf_enum)?;
+            }
 
-            // If the card was forgotten or rated Hard, it needs to be
-            // re-shown this session. Because MIN_INTERVAL=1, the DB schedules
-            // it for tomorrow; we track it in the relapse queue so it
-            // re-surfaces before the other due cards.
+            // Update session state: relapse queue, reveal flag, current_card.
             let mut session = state.session_state.lock().unwrap();
             if grade == Grade::Forgot || grade == Grade::Hard {
-                // Avoid duplicates in the relapse queue.
+                // If the card was forgotten or rated Hard, it needs to be
+                // re-shown this session. Because MIN_INTERVAL=1, the DB
+                // schedules it for tomorrow; we track it in the relapse queue
+                // so it re-surfaces before the other due cards.
                 if !session.relapse_queue.contains(&hash) {
                     session.relapse_queue.push(hash);
                 }
@@ -132,6 +148,7 @@ async fn action_handler(state: AppState, action: Action) -> Fallible<()> {
                 // it was there from a prior relapse.
                 session.relapse_queue.retain(|h| h != &hash);
             }
+            session.current_card = None;
             session.reveal = false;
         }
     }
