@@ -33,6 +33,12 @@
                 so review timestamps and the dashboard heatmap match
                 your wall clock.
             </change>
+            <change author="Katina Thongvong">
+                Expand the self-hosting docs with a full Windows /
+                Docker Desktop / WSL2 walkthrough, timezone setup,
+                update procedure, LAN-access notes, and a
+                troubleshooting section.
+            </change>
         </added>
         <changed>
             <change author="eudoxia0">

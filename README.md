@@ -118,11 +118,21 @@ To learn how to write good flashcards, read [Effective Spaced Repetition][esr].
 For perpetual self-hosted access from any browser (desktop or mobile):
 
     docker build -t hashcards:latest .
-    docker run -d -p 8000:8000 -v /path/to/your/cards:/cards hashcards:latest
+    docker run -d \
+        -p 8000:8000 \
+        -v /path/to/your/cards:/cards \
+        -e TZ=America/Los_Angeles \
+        hashcards:latest
 
 Then open http://localhost:8000.
 
-For docker-compose, see `examples/docker/`.
+`TZ` is an IANA zone (`America/Los_Angeles`, `Europe/Berlin`,
+`Asia/Tokyo`, …). Without it the container runs in UTC, which
+shifts the dashboard's daily streak and review timestamps off your
+wall clock.
+
+For a docker-compose setup and the full Windows / WSL2 walkthrough,
+see [`examples/docker/`](examples/docker/README.md).
 
 ### Card editing
 
@@ -132,9 +142,18 @@ git, Syncthing, rclone, or any other tool.
 
 ### Windows hosts
 
-If your cards directory lives on a Windows filesystem (not inside WSL2),
-add `--rescan-interval 30s` to the serve command so changes are picked up
-via polling — inotify doesn't propagate reliably across the WSL2 boundary.
+Use [Docker Desktop](https://www.docker.com/products/docker-desktop/)
+with the WSL2 backend. Two notes:
+
+- In `docker run` / compose, use forward slashes for Windows paths,
+  e.g. `-v C:/Users/you/cards:/cards` rather than backslashes.
+- If your cards directory is on the Windows filesystem (`C:\…`, not
+  inside WSL2), add `--rescan-interval 30s` to the serve command so
+  changes are picked up via polling — `inotify` doesn't propagate
+  reliably across the WSL2 boundary.
+
+See [`examples/docker/README.md`](examples/docker/README.md) for the
+full walkthrough.
 
 ### Backup
 
