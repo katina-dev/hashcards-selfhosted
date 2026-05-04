@@ -28,6 +28,13 @@
                 labels along the top, weekday labels on the left, and a
                 Less→More color legend.
             </change>
+            <change author="Katina Thongvong">
+                The Docker image now bundles `tzdata` and the example
+                `docker-compose.yml` exposes a `TZ` environment variable.
+                Set `TZ` to your IANA zone (e.g. `America/Los_Angeles`)
+                so review timestamps and the dashboard heatmap match
+                your wall clock.
+            </change>
         </added>
         <changed>
             <change author="eudoxia0">

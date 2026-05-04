@@ -6,6 +6,10 @@ services:
       - "8000:8000"
     volumes:
       - /path/to/your/cards:/cards
+    environment:
+      # Set to your IANA timezone (e.g. America/Los_Angeles, Europe/Berlin).
+      # Review timestamps and the dashboard heatmap follow this clock.
+      TZ: UTC
     restart: unless-stopped
     healthcheck:
       test: ["CMD-SHELL", "wget -qO- http://localhost:8000/healthz || exit 1"]

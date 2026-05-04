@@ -9,7 +9,7 @@ RUN cargo build --release --locked
 
 # Runtime stage
 FROM debian:stable-slim
-RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates wget && rm -rf /var/lib/apt/lists/*
+RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates wget tzdata && rm -rf /var/lib/apt/lists/*
 COPY --from=builder /build/target/release/hashcards /usr/local/bin/hashcards
 WORKDIR /cards
 EXPOSE 8000
