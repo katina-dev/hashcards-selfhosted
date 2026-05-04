@@ -1,0 +1,14 @@
+services:
+  hashcards:
+    image: hashcards:latest
+    container_name: hashcards
+    ports:
+      - "8000:8000"
+    volumes:
+      - /path/to/your/cards:/cards
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:8000/healthz || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
