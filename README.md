@@ -65,10 +65,10 @@ $ make
 $ sudo make install
 ```
 
-To drill flashcards in a directory, run:
+To serve flashcards in a directory, run:
 
 ```
-$ hashcards drill $DIRNAME
+$ hashcards serve $DIRNAME
 ```
 
 ## Tutorial
@@ -91,10 +91,10 @@ A Markdown file is called a "deck", and the name of the file, sans extension, is
 the name of the deck. This will be shown on top of the flashcard during reviews,
 this saves you from having to specify the context in each of the flashcards.
 
-Start drilling:
+Start the server:
 
 ```bash
-$ hashcards drill
+$ hashcards serve
 ```
 
 This opens a web interface at `http://localhost:8000` where you can review your
@@ -108,35 +108,64 @@ did, with one of four choices:
 4. Easy (shortcut: `4`)
 
 Be honest. If you got the answer almost right, press "Forgot". If you mis-grade
-something, you can undo (shortcut: `u`). The session ends when every card has
-been graded "Good" or higher. You can end the session prematurely by clicking
-"End", this will save your changes.
+something, you can undo (shortcut: `u`). Ratings are saved immediately per-card;
+the server runs continuously so you can return at any time.
 
 To learn how to write good flashcards, read [Effective Spaced Repetition][esr].
+
+## Self-hosting with Docker
+
+For perpetual self-hosted access from any browser (desktop or mobile):
+
+    docker build -t hashcards:latest .
+    docker run -d -p 8000:8000 -v /path/to/your/cards:/cards hashcards:latest
+
+Then open http://localhost:8000.
+
+For docker-compose, see `examples/docker/`.
+
+### Card editing
+
+Edit your `.md` files on the host with your editor of choice. The server
+watches the directory and picks up changes automatically. Sync them via
+git, Syncthing, rclone, or any other tool.
+
+### Windows hosts
+
+If your cards directory lives on a Windows filesystem (not inside WSL2),
+add `--rescan-interval 30s` to the serve command so changes are picked up
+via polling — inotify doesn't propagate reliably across the WSL2 boundary.
+
+### Backup
+
+The SQLite database (`hashcards.db`) lives in the cards directory.
+Back up the cards directory and you've backed up everything.
 
 ## Commands
 
 This section documents the hashcards command line interface.
 
-### `drill`
+### `serve`
 
-Start a drilling session.
+Start the long-running web server.
 
 ```bash
-$ hashcards drill [DIRECTORY]
+$ hashcards serve [DIRECTORY]
 ```
 
-Note: your progress is not saved until the session ends, either when you run out
-of cards, or when you click "End".
+Ratings are persisted to the database immediately after each card is graded.
+The server watches the cards directory for changes and reloads automatically.
 
 Options:
 
 - `--card-limit=<N>`: Limit the session to at most N cards.
 - `--new-card-limit=<N>`: Limit the number of new cards in the session.
 - `--port=<PORT>`: Use a specific port (default: 8000).
-- `--from-deck=<NAME>`: Only drill cards from a deck with the given name.
+- `--from-deck=<NAME>`: Only serve cards from a deck with the given name.
 - `--open-browser=<true|false>`: Whether or not to open the browser after the
   server starts (default: true).
+- `--rescan-interval=<DURATION>`: Poll interval for file changes (e.g. `30s`).
+  Use on Windows hosts where inotify is unavailable.
 
 ### `stats`
 
@@ -378,13 +407,13 @@ A single cloze card in the Markdown text with _n_ cloze deletions corresponds to
 
 Hashcards supports "sibling burial": by default, within a session, only one sibling in a particular sibling group will be shown. This is to prevent the text of one card spoiling the answer of another card. The idea is you might do multiple sessions in a single day, and each session shows a different sibling, until you run out of siblings for all cards due today.
 
-You can turn this off by passing `--bury-siblings=false` to the `drill` command.
+You can turn this off by passing `--bury-siblings=false` to the `serve` command.
 
 ## Database
 
 hashcards stores card performance data and the review history in an SQLite3
 database. The file is called `hashcards.db` and is found in the root of the card
-directory (i.e., the path you pass to the `drill` command).
+directory (i.e., the path you pass to the `serve` command).
 
 The `cards` table has the following schema:
 

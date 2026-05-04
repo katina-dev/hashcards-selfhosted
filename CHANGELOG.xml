@@ -10,6 +10,18 @@
             <change author="eudoxia0">
                 Add dark mode support.
             </change>
+            <change author="Katina Thongvong">
+                Add `serve` subcommand: a perpetual self-hosted web app
+                that persists ratings per-card, picks up file edits via
+                inotify, and provides a dashboard with heatmap of review
+                activity. Designed to run as a Docker container.
+            </change>
+            <change author="Katina Thongvong">
+                Implement `stats --format html` output.
+            </change>
+            <change author="Katina Thongvong">
+                Add `Dockerfile` and `examples/docker/` for self-hosting.
+            </change>
         </added>
         <changed>
             <change author="eudoxia0">
@@ -22,6 +34,12 @@
                 Upgrade KaTeX to `0.16.45`.
             </change>
         </changed>
+        <removed>
+            <change author="Katina Thongvong">
+                Remove `drill` subcommand. Use `serve` instead, which
+                provides the same web UI as a long-running service.
+            </change>
+        </removed>
     </unreleased>
     <releases>
         <release version="0.3.0" date="2026-01-11">
